@@ -14,7 +14,7 @@ pub enum AstKind {
 
 pub trait Ast {
 	fn kind(&self) -> AstKind;
-	fn optimize(&mut self) -> Option<~Ast>;
+	fn optimize(~self) -> Option<~Ast>;
 	//fn eval(&self) -> Option<~Any>;
 	fn compile(&self) -> ~[u8];
 }
@@ -23,13 +23,13 @@ pub struct RootAst {
 	asts: ~[~Ast]
 }
 
-pub struct SexprAst<'a> {
-	op: &'a str,
+pub struct SexprAst {
+	op: ~str,
 	operands: ~[~Ast]
 }
 
-pub struct StringAst<'a> {
-	string: &'a str
+pub struct StringAst {
+	string: ~str
 }
 
 pub struct ListAst {
@@ -70,9 +70,10 @@ impl Ast for RootAst {
 		Root
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
-		self.asts = self.asts.mut_iter().filter_map(|ast| ast.optimize()).to_owned_vec();
-		Some(unsafe { transmute(self) })
+	fn optimize(~self) -> Option<~Ast> {
+		let mut result = RootAst::new();
+		result.asts = self.asts.move_iter().filter_map(|ast| ast.optimize()).to_owned_vec();
+		Some(~result as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -84,26 +85,27 @@ impl Ast for RootAst {
 	}
 }
 
-impl<'a> SexprAst<'a> {
+impl SexprAst {
 	fn is_math_op(&self) -> bool {
-		match self.op {
+		let op: &str = self.op;
+		match op {
 			"+" | "-" | "*" | "/" => true,
 			_ => false
 		}
 	}
 }
 
-impl<'a> Ast for SexprAst<'a> {
+impl Ast for SexprAst {
 	#[inline(always)]
 	fn kind(&self) -> AstKind {
 		Sexpr
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
+	fn optimize(~self) -> Option<~Ast> {
 		if self.is_math_op() {
 			// TODO: check if ops can be eliminated
 		}
-		Some(unsafe { transmute(self) })
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -111,15 +113,15 @@ impl<'a> Ast for SexprAst<'a> {
 	}
 }
 
-impl<'a> Ast for StringAst<'a> {
+impl Ast for StringAst {
 	#[inline(always)]
 	fn kind(&self) -> AstKind {
 		String
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
+	fn optimize(~self) -> Option<~Ast> {
 		// TODO: perhaps this should deal with a string table?
-		Some(unsafe { transmute(self) })
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -133,8 +135,8 @@ impl Ast for ListAst {
 		List
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
-		Some(unsafe { transmute(self) })
+	fn optimize(~self) -> Option<~Ast> {
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -148,8 +150,8 @@ impl Ast for ArrayAst {
 		Array
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
-		Some(unsafe { transmute(self) })
+	fn optimize(~self) -> Option<~Ast> {
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -163,12 +165,20 @@ impl Ast for PointerAst {
 		Pointer
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
-		Some(unsafe { transmute(self) })
+	fn optimize(~self) -> Option<~Ast> {
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
 		~[]
+	}
+}
+
+impl IntegerAst {
+	pub fn new(num: i64) -> IntegerAst {
+		IntegerAst {
+			value: num
+		}
 	}
 }
 
@@ -178,8 +188,8 @@ impl Ast for IntegerAst {
 		Integer
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
-		Some(unsafe { transmute(self) })
+	fn optimize(~self) -> Option<~Ast> {
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -193,8 +203,8 @@ impl Ast for FloatAst {
 		Float
 	}
 
-	fn optimize(&mut self) -> Option<~Ast> {
-		Some(unsafe { transmute(self) })
+	fn optimize(~self) -> Option<~Ast> {
+		Some(self as ~Ast)
 	}
 
 	fn compile(&self) -> ~[u8] {
