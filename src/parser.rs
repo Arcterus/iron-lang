@@ -21,16 +21,16 @@ pub struct Parser {
 	column: uint
 }
 
-pub struct ParseError<'a> {
+pub struct ParseError {
 	line: uint,
 	column: uint,
-	desc: &'a str
+	desc: ~str
 }
 
-pub type ParseResult<'a, T> = Result<T, ParseError<'a>>;
+pub type ParseResult<T> = Result<T, ParseError>;
 
-impl<'a> ParseError<'a> {
-	pub fn new(line: uint, col: uint, desc: &'a str) -> ParseError<'a> {
+impl ParseError {
+	pub fn new(line: uint, col: uint, desc: ~str) -> ParseError {
 		ParseError {
 			line: line,
 			column: col,
@@ -82,12 +82,12 @@ impl Parser {
 	}
 
 	fn parse_sexpr(&mut self) -> ParseResult<~Ast> {
-		Err(ParseError::new(self.line, self.column, "not implemented"))
+		Err(ParseError::new(self.line, self.column, ~"not implemented"))
 	}
 
 	fn parse_integer(&mut self) -> ParseResult<~Ast> {
 		if self.pos == self.code.len() {
-			return Err(ParseError::new(self.line, self.column, "end of file"));
+			return Err(ParseError::new(self.line, self.column, ~"end of file"));
 		}
 		let mut number = 0;
 		let mut neg = false;
@@ -103,14 +103,14 @@ impl Parser {
 					if digits == 0 {
 						neg = true;
 					} else {
-						return Err(ParseError::new(self.line, self.column, "expected integer but found '-'"));
+						return Err(ParseError::new(self.line, self.column, ~"expected integer but found '-'"));
 					}
 					true
 				}
 				other => {
 					if digits == 0 {
 						return Err(ParseError::new(self.line, self.column,
-							"error")); // THIS SHOULD BE FIXED //format!("expected integer but found '{:c}'", other)));
+							format!("expected integer but found '{:c}'", other)));
 					}
 					false
 				}
