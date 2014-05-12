@@ -1,4 +1,4 @@
-# Iron #
+# Iron [![Build Status](https://travis-ci.org/Arcterus/iron.png?branch=master)](https://travis-ci.org/Arcterus/iron) #
 
 A Lisp-based language written in Rust.
 
