@@ -1,11 +1,12 @@
-#[crate_id(name = "iron",
-           vers = "0.1",
-           author = "Arcterus",
-           license = "MPL v2.0")];
+#![crate_id(name = "iron",
+            vers = "0.1",
+            author = "Arcterus",
+            license = "MPL v2.0")]
 
-#[feature(macro_rules, globs)];
+#![feature(macro_rules, globs, phase)]
 
-extern mod getopts;
+#[phase(syntax, link)] extern crate log;
+extern crate getopts;
 
 use std::os;
 
@@ -17,7 +18,7 @@ static VERSION: &'static str = "0.1";
 
 fn main() {
 	let args = os::args();
-	let program = args[0].clone();
+	let program = args.get(0).clone();
 
 	let opts = [
 		getopts::optflag("d", "debug", "debug mode"),
@@ -47,7 +48,8 @@ fn main() {
 			};
 		let mut interp = interp::Interpreter::new();
 		interp.set_mode(mode);
-		interp.load_code(~"(fn hi [param] (+ 1 param))");
+		/*interp.load_code("(fn hi [param] (+ 1 param))".to_owned());*/
+		interp.load_code("(fn hi 1)".to_owned());
 		println!("exit status: {}", interp.execute());
 	}
 }

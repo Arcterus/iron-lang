@@ -1,5 +1,6 @@
-use std::cast::transmute;
+use std::mem::transmute;
 use std::vec;
+use std::vec::FromVec;
 
 pub enum AstKind {
 	Root,
@@ -8,24 +9,25 @@ pub enum AstKind {
 	List,
 	Array,
 	Pointer,
+	Ident,
 	Integer,
 	Float
 }
 
 pub trait Ast {
 	fn kind(&self) -> AstKind;
-	fn optimize(~self) -> Option<~Ast>;
+	fn optimize(~self) -> Option<Box<Ast>>;
 	//fn eval(&self) -> Option<~Any>;
 	fn compile(&self) -> ~[u8];
 }
 
 pub struct RootAst {
-	asts: ~[~Ast]
+	asts: Vec<Box<Ast>>
 }
 
 pub struct SexprAst {
-	op: ~str,
-	operands: ~[~Ast]
+	op: IdentAst,
+	operands: ~[Box<Ast>]
 }
 
 pub struct StringAst {
@@ -33,15 +35,19 @@ pub struct StringAst {
 }
 
 pub struct ListAst {
-	items: ~[~Ast]
+	items: ~[Box<Ast>]
 }
 
 pub struct ArrayAst {
-	items: ~[~Ast]
+	items: ~[Box<Ast>]
 }
 
 pub struct PointerAst {
-	pointee: ~Ast
+	pointee: Box<Ast>
+}
+
+pub struct IdentAst {
+	value: ~str
 }
 
 pub struct IntegerAst {
@@ -55,11 +61,11 @@ pub struct FloatAst {
 impl RootAst {
 	pub fn new() -> RootAst {
 		RootAst {
-			asts: ~[]
+			asts: vec!()
 		}
 	}
 
-	pub fn push(&mut self, ast: ~Ast) {
+	pub fn push(&mut self, ast: Box<Ast>) {
 		self.asts.push(ast);
 	}
 }
@@ -70,24 +76,31 @@ impl Ast for RootAst {
 		Root
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
+	fn optimize(~self) -> Option<Box<Ast>> {
 		let mut result = RootAst::new();
-		result.asts = self.asts.move_iter().filter_map(|ast| ast.optimize()).to_owned_vec();
-		Some(~result as ~Ast)
+		result.asts = self.asts.move_iter().filter_map(|ast| ast.optimize()).collect();
+		Some(box result as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
-		let mut result = ~[];
-		for bc in self.asts.map(|ast| ast.compile()).iter() {
-			result = vec::append(result, *bc);
+		let mut result = vec!();
+		for ast in self.asts.iter() {
+			result.push_all(ast.compile());
 		}
-		result
+		FromVec::from_vec(result)
 	}
 }
 
 impl SexprAst {
+	pub fn new(op: IdentAst, operands: ~[Box<Ast>]) -> SexprAst {
+		SexprAst {
+			op: op,
+			operands: operands
+		}
+	}
+
 	fn is_math_op(&self) -> bool {
-		let op: &str = self.op;
+		let op: &str = self.op.value;
 		match op {
 			"+" | "-" | "*" | "/" => true,
 			_ => false
@@ -101,11 +114,11 @@ impl Ast for SexprAst {
 		Sexpr
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
+	fn optimize(~self) -> Option<Box<Ast>> {
 		if self.is_math_op() {
 			// TODO: check if ops can be eliminated
 		}
-		Some(self as ~Ast)
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -119,9 +132,9 @@ impl Ast for StringAst {
 		String
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
+	fn optimize(~self) -> Option<Box<Ast>> {
 		// TODO: perhaps this should deal with a string table?
-		Some(self as ~Ast)
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -135,8 +148,8 @@ impl Ast for ListAst {
 		List
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
-		Some(self as ~Ast)
+	fn optimize(~self) -> Option<Box<Ast>> {
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -150,8 +163,8 @@ impl Ast for ArrayAst {
 		Array
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
-		Some(self as ~Ast)
+	fn optimize(~self) -> Option<Box<Ast>> {
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -165,8 +178,8 @@ impl Ast for PointerAst {
 		Pointer
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
-		Some(self as ~Ast)
+	fn optimize(~self) -> Option<Box<Ast>> {
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -188,8 +201,31 @@ impl Ast for IntegerAst {
 		Integer
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
-		Some(self as ~Ast)
+	fn optimize(~self) -> Option<Box<Ast>> {
+		Some(self as Box<Ast>)
+	}
+
+	fn compile(&self) -> ~[u8] {
+		~[]
+	}
+}
+
+impl IdentAst {
+	pub fn new(ident: ~str) -> IdentAst {
+		IdentAst {
+			value: ident
+		}
+	}
+}
+
+impl Ast for IdentAst {
+	#[inline(always)]
+	fn kind(&self) -> AstKind {
+		Ident
+	}
+
+	fn optimize(~self) -> Option<Box<Ast>> {
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -203,8 +239,8 @@ impl Ast for FloatAst {
 		Float
 	}
 
-	fn optimize(~self) -> Option<~Ast> {
-		Some(self as ~Ast)
+	fn optimize(~self) -> Option<Box<Ast>> {
+		Some(self as Box<Ast>)
 	}
 
 	fn compile(&self) -> ~[u8] {
