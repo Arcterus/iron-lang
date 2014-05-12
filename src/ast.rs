@@ -345,6 +345,14 @@ impl Ast for IdentAst {
 	}
 }
 
+impl FloatAst {
+	pub fn new(value: f64) -> FloatAst {
+		FloatAst {
+			value: value
+		}
+	}
+}
+
 impl Ast for FloatAst {
 	#[inline(always)]
 	fn kind(&self) -> AstKind {

@@ -1,3 +1,4 @@
+use std::num;
 use std::vec::FromVec;
 use ast::*;
 
@@ -88,7 +89,7 @@ impl Parser {
 	}
 
 	fn parse_expr(&mut self) -> ParseResult<Box<Ast>> {
-		let expr = parse_subexprs!(parse_sexpr, parse_integer, parse_ident, parse_string);
+		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_ident, parse_string);
 		Ok(expr)
 	}
 
@@ -118,37 +119,50 @@ impl Parser {
 	}
 
 	fn parse_integer(&mut self) -> ParseResult<Box<Ast>> {
+		Ok(box IntegerAst::new(try!(self.parse_integer_val()).val0()) as Box<Ast>)
+	}
+
+	fn parse_integer_val(&mut self) -> ParseResult<(i64, uint)> {
 		self.skip_whitespace();
 		if self.pos == self.code.len() {
 			return Err(self.eof_error());
 		}
+		let neg =
+			if self.code.char_at(self.pos) == '-' {
+				self.inc_pos_col();
+				true
+			} else {
+				false
+			};
 		let mut number = 0;
-		let mut neg = false;
 		let mut digits = 0;
-		while {
-			match self.code.char_at(self.pos) {
-				num @ '0'..'9' => {
-					digits += 1;
-					number = number * 10 + num.to_digit(10).unwrap() as i64;
-					true
-				}
-				'-' => {
-					if digits == 0 {
-						neg = true;
-					} else {
-						return Err(self.expect_error("integer", "'-'"));
-					}
-					true
-				}
-				other => {
-					if digits == 0 {
-						return Err(self.expect_error("integer", format!("'{}'", other)));
-					}
-					false
-				}
+		while self.pos < self.code.len() && self.code.char_at(self.pos).is_digit() {
+			digits += 1;
+			number = number * 10 + self.code.char_at(self.pos).to_digit(10).unwrap() as i64;
+			self.inc_pos_col();
+		}
+		if digits == 0 {
+			Err(self.expect_error("integer", format!("'{}'", self.code.char_at(self.pos))))
+		} else {
+			Ok((if neg { -number } else { number }, digits))
+		}
+	}
+
+	fn parse_float(&mut self) -> ParseResult<Box<Ast>> {
+		let front = try!(self.parse_integer_val()).val0();
+		if self.pos + 1 >= self.code.len() {
+			Err(self.eof_error())
+		} else if self.code.char_at(self.pos) != '.' {
+			Err(self.expect_error("'.'", format!("'{}'", self.code.char_at(self.pos))))
+		} else {
+			self.inc_pos_col();
+			if !self.code.char_at(self.pos).is_digit() {
+				Err(self.expect_error("float", format!("'{}'", self.code.char_at(self.pos))))
+			} else {
+				let back = try!(self.parse_integer_val());
+				Ok(box FloatAst::new(front as f64 + back.val0() as f64 / num::pow(10, back.val1()) as f64) as Box<Ast>)
 			}
-		} { self.inc_pos_col(); if self.pos == self.code.len() { break } }
-		Ok(box IntegerAst::new(if neg { -number } else { number }) as Box<Ast>)
+		}
 	}
 
 	fn parse_ident(&mut self) -> ParseResult<Box<Ast>> {
