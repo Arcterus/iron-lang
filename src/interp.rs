@@ -36,4 +36,8 @@ impl Interpreter {
 		}
 		0 // exit status
 	}
+
+	pub fn dump_ast(&mut self) {
+		self.parser.parse().dump();
+	}
 }

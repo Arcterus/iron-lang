@@ -10,7 +10,7 @@ macro_rules! parse_subexprs (
 		let oldline = self.line;
 		match self.$expfn() {
 			Ok(m) => m,
-			Err(f) => {
+			Err(_) => {
 				self.pos = oldpos;
 				self.column = oldcol;
 				self.line = oldline;
@@ -88,14 +88,14 @@ impl Parser {
 	}
 
 	fn parse_expr(&mut self) -> ParseResult<Box<Ast>> {
-		let expr = parse_subexprs!(parse_sexpr, parse_integer, parse_ident);
+		let expr = parse_subexprs!(parse_sexpr, parse_integer, parse_ident, parse_string);
 		Ok(expr)
 	}
 
 	fn parse_sexpr(&mut self) -> ParseResult<Box<Ast>> {
 		self.skip_whitespace();
 		if self.pos == self.code.len() {
-			Err(ParseError::new(self.line, self.column, "end of file".to_owned()))
+			Err(self.eof_error())
 		} else if self.code.char_at(self.pos) == '(' {
 			self.inc_pos_col();
 			let op = try!(self.parse_ident_stack());
@@ -103,7 +103,7 @@ impl Parser {
 			loop {
 				self.skip_whitespace();
 				if self.pos == self.code.len() {
-					return Err(ParseError::new(self.line, self.column, "end of file".to_owned()));
+					return Err(self.eof_error());
 				}
 				if self.code.char_at(self.pos) == ')' {
 					self.inc_pos_col();
@@ -113,14 +113,14 @@ impl Parser {
 			}
 			Ok(box SexprAst::new(op, FromVec::from_vec(operands)) as Box<Ast>)
 		} else {
-			Err(ParseError::new(self.line, self.column, format!("expected '(' but found {}", self.code.char_at(self.pos))))
+			Err(self.expect_error("'('", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
 	fn parse_integer(&mut self) -> ParseResult<Box<Ast>> {
 		self.skip_whitespace();
 		if self.pos == self.code.len() {
-			return Err(ParseError::new(self.line, self.column, "end of file".to_owned()));
+			return Err(self.eof_error());
 		}
 		let mut number = 0;
 		let mut neg = false;
@@ -136,14 +136,13 @@ impl Parser {
 					if digits == 0 {
 						neg = true;
 					} else {
-						return Err(ParseError::new(self.line, self.column, "expected integer but found '-'".to_owned()));
+						return Err(self.expect_error("integer", "'-'"));
 					}
 					true
 				}
 				other => {
 					if digits == 0 {
-						return Err(ParseError::new(self.line, self.column,
-							format!("expected integer but found '{:c}'", other)));
+						return Err(self.expect_error("integer", format!("'{}'", other)));
 					}
 					false
 				}
@@ -160,7 +159,7 @@ impl Parser {
 	fn parse_ident_stack(&mut self) -> ParseResult<IdentAst> {
 		self.skip_whitespace();
 		if self.pos == self.code.len() {
-			Err(ParseError::new(self.line, self.column, "end of file".to_owned()))
+			Err(self.eof_error())
 		} else {
 			let mut ident = StrBuf::new();
 			loop {
@@ -172,14 +171,14 @@ impl Parser {
 						if ident.len() > 0 {
 							ident.push_char(num);
 						} else {
-							return Err(ParseError::new(self.line, self.column, format!("expected ident but found '{}'", num)));
+							return Err(self.expect_error("ident", format!("'{}'", num)));
 						}
 					}
 					other => {
 						if ident.len() > 0 {
 							break
 						} else {
-							return Err(ParseError::new(self.line, self.column, format!("expected ident but found '{}'", other)));
+							return Err(self.expect_error("ident", format!("'{}'", other)));
 						}
 					}
 				};
@@ -189,6 +188,33 @@ impl Parser {
 				}
 			}
 			Ok(IdentAst::new(ident.into_owned()))
+		}
+	}
+
+	fn parse_string(&mut self) -> ParseResult<Box<Ast>> {
+		self.skip_whitespace();
+		if self.pos == self.code.len() {
+			Err(self.eof_error())
+		} else if self.code.char_at(self.pos) == '"' {
+			self.inc_pos_col();
+			let mut buf = StrBuf::new();
+			while self.pos < self.code.len() && (self.code.char_at(self.pos) != '"' || self.code.char_at(self.pos - 1) == '\\') {
+				buf.push_char(self.code.char_at(self.pos));
+				if self.code.char_at(self.pos) == '\n' {
+					self.add_line();
+				} else {
+					self.column += 1;
+				}
+				self.pos += 1;
+			}
+			if self.pos == self.code.len() {
+				Err(self.eof_error())
+			} else {
+				self.inc_pos_col();
+				Ok(box StringAst::new(buf.into_owned()) as Box<Ast>)
+			}
+		} else {
+			Err(self.expect_error("\"", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
@@ -214,5 +240,20 @@ impl Parser {
 	fn inc_pos_col(&mut self) {
 		self.column += 1;
 		self.pos += 1;
+	}
+
+	#[inline(always)]
+	fn eof_error(&self) -> ParseError {
+		ParseError::new(self.line, self.column, "end of file".to_owned())
+	}
+
+	#[inline(always)]
+	fn nyi_error(&self, item: &str) -> ParseError {
+		ParseError::new(self.line, self.column, format!("{} not yet implemented", item))
+	}
+
+	#[inline(always)]
+	fn expect_error(&self, expect: &str, found: &str) -> ParseError {
+		ParseError::new(self.line, self.column, format!("expected {} but found {}", expect, found))
 	}
 }

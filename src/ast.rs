@@ -1,6 +1,6 @@
-use std::mem::transmute;
-use std::vec;
 use std::vec::FromVec;
+
+static INDENTATION: uint = 2;
 
 pub enum AstKind {
 	Root,
@@ -19,6 +19,11 @@ pub trait Ast {
 	fn optimize(~self) -> Option<Box<Ast>>;
 	//fn eval(&self) -> Option<~Any>;
 	fn compile(&self) -> ~[u8];
+
+	fn dump(&self) { self.dump_level(0) }
+
+	// XXX: this should in actuality be private...
+	fn dump_level(&self, level: uint);
 }
 
 pub struct RootAst {
@@ -89,6 +94,19 @@ impl Ast for RootAst {
 		}
 		FromVec::from_vec(result)
 	}
+
+	fn dump_level(&self, level: uint) {
+		let mut spaces = StrBuf::new();
+		for _ in range(0, level * INDENTATION) {
+			spaces.push_char(' ');
+		}
+		let spaces = spaces.into_owned();
+		println!("{}RootAst {}", spaces, "{");
+		for ast in self.asts.iter() {
+			ast.dump_level(level + 1);
+		}
+		println!("{}{}", spaces, "}");
+	}
 }
 
 impl SexprAst {
@@ -124,6 +142,28 @@ impl Ast for SexprAst {
 	fn compile(&self) -> ~[u8] {
 		~[]
 	}
+
+	fn dump_level(&self, level: uint) {
+		let mut spaces = StrBuf::new();
+		for _ in range(0, level * INDENTATION) {
+			spaces.push_char(' ');
+		}
+		let spaces = spaces.into_owned();
+		println!("{}SexprAst {}", spaces, "{");
+		self.op.dump_level(level + 1);
+		for ast in self.operands.iter() {
+			ast.dump_level(level + 1);
+		}
+		println!("{}{}", spaces, "}");
+	}
+}
+
+impl StringAst {
+	pub fn new(value: ~str) -> StringAst {
+		StringAst {
+			string: value
+		}
+	}
 }
 
 impl Ast for StringAst {
@@ -140,6 +180,26 @@ impl Ast for StringAst {
 	fn compile(&self) -> ~[u8] {
 		~[]
 	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}StringAst {}", spaces, "{");
+		println!("{}{}\"{}\"", spaces, indent, self.string);
+		println!("{}{}", spaces, "}");
+	}
 }
 
 impl Ast for ListAst {
@@ -154,6 +214,10 @@ impl Ast for ListAst {
 
 	fn compile(&self) -> ~[u8] {
 		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		
 	}
 }
 
@@ -170,6 +234,10 @@ impl Ast for ArrayAst {
 	fn compile(&self) -> ~[u8] {
 		~[]
 	}
+
+	fn dump_level(&self, level: uint) {
+		
+	}
 }
 
 impl Ast for PointerAst {
@@ -184,6 +252,10 @@ impl Ast for PointerAst {
 
 	fn compile(&self) -> ~[u8] {
 		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		
 	}
 }
 
@@ -208,6 +280,26 @@ impl Ast for IntegerAst {
 	fn compile(&self) -> ~[u8] {
 		~[]
 	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}IntegerAst {}", spaces, "{");
+		println!("{}{}{}", spaces, indent, self.value);
+		println!("{}{}", spaces, "}");
+	}
 }
 
 impl IdentAst {
@@ -231,6 +323,26 @@ impl Ast for IdentAst {
 	fn compile(&self) -> ~[u8] {
 		~[]
 	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}IdentAst {}", spaces, "{");
+		println!("{}{}{}", spaces, indent, self.value);
+		println!("{}{}", spaces, "}");
+	}
 }
 
 impl Ast for FloatAst {
@@ -245,6 +357,26 @@ impl Ast for FloatAst {
 
 	fn compile(&self) -> ~[u8] {
 		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}FloatAst {}", spaces, "{");
+		println!("{}{}{}", spaces, indent, self.value);
+		println!("{}{}", spaces, "}");
 	}
 }
 
