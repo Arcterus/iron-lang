@@ -89,7 +89,7 @@ impl Parser {
 	}
 
 	fn parse_expr(&mut self) -> ParseResult<Box<Ast>> {
-		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_ident, parse_string, parse_list);
+		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_ident, parse_string);
 		Ok(expr)
 	}
 
@@ -114,7 +114,7 @@ impl Parser {
 			}
 			Ok(box SexprAst::new(op, FromVec::from_vec(operands)) as Box<Ast>)
 		} else {
-			Err(self.expect_error("'('", format!("'{}'", self.code.char_at(self.pos))))
+			Err(self.unexpected_error("'('", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
@@ -142,7 +142,7 @@ impl Parser {
 			self.inc_pos_col();
 		}
 		if digits == 0 {
-			Err(self.expect_error("integer", format!("'{}'", self.code.char_at(self.pos))))
+			Err(self.unexpected_error("integer", format!("'{}'", self.code.char_at(self.pos))))
 		} else {
 			Ok((if neg { -number } else { number }, digits))
 		}
@@ -153,44 +153,15 @@ impl Parser {
 		if self.pos + 1 >= self.code.len() {
 			Err(self.eof_error())
 		} else if self.code.char_at(self.pos) != '.' {
-			Err(self.expect_error("'.'", format!("'{}'", self.code.char_at(self.pos))))
+			Err(self.unexpected_error("'.'", format!("'{}'", self.code.char_at(self.pos))))
 		} else {
 			self.inc_pos_col();
 			if !self.code.char_at(self.pos).is_digit() {
-				Err(self.expect_error("float", format!("'{}'", self.code.char_at(self.pos))))
+				Err(self.unexpected_error("float", format!("'{}'", self.code.char_at(self.pos))))
 			} else {
 				let back = try!(self.parse_integer_val());
 				Ok(box FloatAst::new(front as f64 + back.val0() as f64 / num::pow(10, back.val1()) as f64) as Box<Ast>)
 			}
-		}
-	}
-
-	fn parse_list(&mut self) -> ParseResult<Box<Ast>> {
-		self.skip_whitespace();
-		if self.pos + 2 >= self.code.len() {
-			Err(self.eof_error())
-		} else if self.code.char_at(self.pos) == '\'' {
-			self.inc_pos_col();
-			if self.code.char_at(self.pos) == '(' {
-				self.inc_pos_col();
-				let mut items = vec!();
-				loop {
-					self.skip_whitespace();
-					if self.pos == self.code.len() {
-						return Err(self.eof_error());
-					}
-					if self.code.char_at(self.pos) == ')' {
-						self.inc_pos_col();
-						break;
-					}
-					items.push(try!(self.parse_expr()));
-				}
-				Ok(box ListAst::new(FromVec::from_vec(items)) as Box<Ast>)
-			} else {
-				Err(self.expect_error("'('", format!("'{}'", self.code.char_at(self.pos))))
-			}
-		} else {
-			Err(self.expect_error("'''", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
@@ -214,14 +185,14 @@ impl Parser {
 						if ident.len() > 0 {
 							ident.push_char(num);
 						} else {
-							return Err(self.expect_error("ident", format!("'{}'", num)));
+							return Err(self.unexpected_error("ident", format!("'{}'", num)));
 						}
 					}
 					other => {
 						if ident.len() > 0 {
 							break
 						} else {
-							return Err(self.expect_error("ident", format!("'{}'", other)));
+							return Err(self.unexpected_error("ident", format!("'{}'", other)));
 						}
 					}
 				};
@@ -257,7 +228,7 @@ impl Parser {
 				Ok(box StringAst::new(buf.into_owned()) as Box<Ast>)
 			}
 		} else {
-			Err(self.expect_error("\"", format!("'{}'", self.code.char_at(self.pos))))
+			Err(self.unexpected_error("\"", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
@@ -296,7 +267,7 @@ impl Parser {
 	}
 
 	#[inline(always)]
-	fn expect_error(&self, expect: &str, found: &str) -> ParseError {
+	fn unexpected_error(&self, expect: &str, found: &str) -> ParseError {
 		ParseError::new(self.line, self.column, format!("expected {} but found {}", expect, found))
 	}
 }
