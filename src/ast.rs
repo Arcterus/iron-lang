@@ -238,6 +238,14 @@ impl Ast for ListAst {
 	}
 }
 
+impl ArrayAst {
+	pub fn new(items: ~[Box<Ast>]) -> ArrayAst {
+		ArrayAst {
+			items: items
+		}
+	}
+}
+
 impl Ast for ArrayAst {
 	#[inline(always)]
 	fn kind(&self) -> AstKind {
@@ -253,7 +261,16 @@ impl Ast for ArrayAst {
 	}
 
 	fn dump_level(&self, level: uint) {
-		
+		let mut spaces = StrBuf::new();
+		for _ in range(0, level * INDENTATION) {
+			spaces.push_char(' ');
+		}
+		let spaces = spaces.into_owned();
+		println!("{}ArrayAst {}", spaces, "{");
+		for item in self.items.iter() {
+			item.dump_level(level + 1);
+		}
+		println!("{}{}", spaces, "}");
 	}
 }
 
