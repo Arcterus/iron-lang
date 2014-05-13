@@ -267,7 +267,7 @@ impl Parser {
 	}
 
 	#[inline(always)]
-	fn intent_error(&self, expect: &str, found: &str) -> ParseError {
+	fn expect_error(&self, expect: &str, found: &str) -> ParseError {
 		ParseError::new(self.line, self.column, format!("expected {} but found {}", expect, found))
 	}
 }
