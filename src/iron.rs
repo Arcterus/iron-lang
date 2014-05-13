@@ -49,7 +49,7 @@ fn main() {
 		let mut interp = interp::Interpreter::new();
 		interp.set_mode(mode);
 		//interp.load_code("(fn hi [param] (+ 1 param))".to_owned());
-		interp.load_code("(fn hi 1 \"hello world\" 1.05)".to_owned());
+		interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4))".to_owned());
 		interp.dump_ast();
 		//println!("exit status: {}", interp.execute());
 	}
