@@ -6,6 +6,7 @@
 #![feature(macro_rules, globs, phase)]
 
 #[phase(syntax, link)] extern crate log;
+extern crate collections;
 extern crate getopts;
 
 use std::os;
@@ -49,9 +50,10 @@ fn main() {
 		let mut interp = interp::Interpreter::new();
 		interp.set_mode(mode);
 		//interp.load_code("(fn hi [param] (+ 1 param))".to_owned());
-		interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4) [hi 2.354 0.1 \"hi\" (hi)])".to_owned());
-		interp.dump_ast();
-		//println!("exit status: {}", interp.execute());
+		//interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4) [hi 2.354 0.1 \"hi\" (hi)])".to_owned());
+		interp.load_code("(println (add 2 3.4))".to_owned());
+		//interp.dump_ast();
+		println!("exit status: {}", interp.execute());
 	}
 }
 

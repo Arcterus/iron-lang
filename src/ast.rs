@@ -2,21 +2,23 @@ use std::vec::FromVec;
 
 static INDENTATION: uint = 2;
 
-pub enum AstKind {
-	Root,
-	Sexpr,
-	String,
-	List,
-	Array,
-	Pointer,
-	Ident,
-	Integer,
-	Float
+#[deriving(Clone)]
+pub enum ExprAst {
+	Root(Box<RootAst>),
+	Sexpr(Box<SexprAst>),
+	String(Box<StringAst>),
+	List(Box<ListAst>),
+	Array(Box<ArrayAst>),
+	Pointer(Box<PointerAst>),
+	Ident(Box<IdentAst>),
+	Integer(Box<IntegerAst>),
+	Float(Box<FloatAst>),
+	Code(Box<CodeAst>)
 }
 
 pub trait Ast {
-	fn kind(&self) -> AstKind;
-	fn optimize(~self) -> Option<Box<Ast>>;
+	fn optimize(&self) -> Option<ExprAst>;
+	fn optimize_owned(~self) -> Option<ExprAst>;
 	//fn eval(&self) -> Option<~Any>;
 	fn compile(&self) -> ~[u8];
 
@@ -26,41 +28,107 @@ pub trait Ast {
 	fn dump_level(&self, level: uint);
 }
 
+#[deriving(Clone)]
 pub struct RootAst {
-	asts: Vec<Box<Ast>>
+	pub asts: Vec<ExprAst>
 }
 
+#[deriving(Clone)]
 pub struct SexprAst {
-	op: IdentAst,
-	operands: ~[Box<Ast>]
+	pub op: IdentAst,
+	pub operands: ~[ExprAst]
 }
 
+#[deriving(Clone)]
 pub struct StringAst {
-	string: ~str
+	pub string: ~str
 }
 
+#[deriving(Clone)]
 pub struct ListAst {
-	items: ~[Box<Ast>]
+	pub items: ~[ExprAst]
 }
 
+#[deriving(Clone)]
 pub struct ArrayAst {
-	items: ~[Box<Ast>]
+	pub items: ~[ExprAst]
 }
 
+#[deriving(Clone)]
 pub struct PointerAst {
-	pointee: Box<Ast>
+	pub pointee: ExprAst
 }
 
+#[deriving(Clone)]
 pub struct IdentAst {
-	value: ~str
+	pub value: ~str
 }
 
+#[deriving(Clone)]
 pub struct IntegerAst {
-	value: i64
+	pub value: i64
 }
 
+#[deriving(Clone)]
 pub struct FloatAst {
-	value: f64
+	pub value: f64
+}
+
+#[deriving(Clone)]
+pub struct CodeAst {
+	pub thunk: fn(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst
+}
+
+impl Ast for ExprAst {
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
+	}
+
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		match *self {
+			Root(ast) => ast.optimize_owned(),
+			Sexpr(ast) => ast.optimize_owned(),
+			String(ast) => ast.optimize_owned(),
+			List(ast) => ast.optimize_owned(),
+			Array(ast) => ast.optimize_owned(),
+			Pointer(ast) => ast.optimize_owned(),
+			Ident(ast) => ast.optimize_owned(),
+			Integer(ast) => ast.optimize_owned(),
+			Float(ast) => ast.optimize_owned(),
+			Code(ast) => ast.optimize_owned()
+		}
+	}
+
+	fn compile(&self) -> ~[u8] {
+		match *self {
+			Root(ref ast) => ast.compile(),
+			Sexpr(ref ast) => ast.compile(),
+			String(ref ast) => ast.compile(),
+			List(ref ast) => ast.compile(),
+			Array(ref ast) => ast.compile(),
+			Pointer(ref ast) => ast.compile(),
+			Ident(ref ast) => ast.compile(),
+			Integer(ref ast) => ast.compile(),
+			Float(ref ast) => ast.compile(),
+			Code(ref ast) => ast.compile()
+		}
+	}
+
+	fn dump_level(&self, level: uint) {
+		match *self {
+			Root(ref ast) => ast.dump_level(level),
+			Sexpr(ref ast) => ast.dump_level(level),
+			String(ref ast) => ast.dump_level(level),
+			List(ref ast) => ast.dump_level(level),
+			Array(ref ast) => ast.dump_level(level),
+			Pointer(ref ast) => ast.dump_level(level),
+			Ident(ref ast) => ast.dump_level(level),
+			Integer(ref ast) => ast.dump_level(level),
+			Float(ref ast) => ast.dump_level(level),
+			Code(ref ast) => ast.dump_level(level)
+		}
+	}
 }
 
 impl RootAst {
@@ -70,21 +138,20 @@ impl RootAst {
 		}
 	}
 
-	pub fn push(&mut self, ast: Box<Ast>) {
+	pub fn push(&mut self, ast: ExprAst) {
 		self.asts.push(ast);
 	}
 }
 
 impl Ast for RootAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Root
+	fn optimize(&self) -> Option<ExprAst> {
+		let mut result = RootAst::new();
+		result.asts = self.asts.iter().filter_map(|ast| ast.optimize()).collect();
+		Some(Root(box result))
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		let mut result = RootAst::new();
-		result.asts = self.asts.move_iter().filter_map(|ast| ast.optimize()).collect();
-		Some(box result as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		self.optimize()
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -110,7 +177,7 @@ impl Ast for RootAst {
 }
 
 impl SexprAst {
-	pub fn new(op: IdentAst, operands: ~[Box<Ast>]) -> SexprAst {
+	pub fn new(op: IdentAst, operands: ~[ExprAst]) -> SexprAst {
 		SexprAst {
 			op: op,
 			operands: operands
@@ -120,23 +187,23 @@ impl SexprAst {
 	fn is_math_op(&self) -> bool {
 		let op: &str = self.op.value;
 		match op {
-			"+" | "-" | "*" | "/" => true,
+			"add" | "sub" | "mul" | "div" => true,
 			_ => false
 		}
 	}
 }
 
 impl Ast for SexprAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Sexpr
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
+	fn optimize_owned(~self) -> Option<ExprAst> {
 		if self.is_math_op() {
 			// TODO: check if ops can be eliminated
 		}
-		Some(self as Box<Ast>)
+		Some(Sexpr(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -167,14 +234,14 @@ impl StringAst {
 }
 
 impl Ast for StringAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		String
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
+	fn optimize_owned(~self) -> Option<ExprAst> {
 		// TODO: perhaps this should deal with a string table?
-		Some(self as Box<Ast>)
+		Some(String(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -203,7 +270,7 @@ impl Ast for StringAst {
 }
 
 impl ListAst {
-	pub fn new(items: ~[Box<Ast>]) -> ListAst {
+	pub fn new(items: ~[ExprAst]) -> ListAst {
 		ListAst {
 			items: items
 		}
@@ -211,13 +278,13 @@ impl ListAst {
 }
 
 impl Ast for ListAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		List
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		Some(self as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(List(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -239,7 +306,7 @@ impl Ast for ListAst {
 }
 
 impl ArrayAst {
-	pub fn new(items: ~[Box<Ast>]) -> ArrayAst {
+	pub fn new(items: ~[ExprAst]) -> ArrayAst {
 		ArrayAst {
 			items: items
 		}
@@ -247,13 +314,13 @@ impl ArrayAst {
 }
 
 impl Ast for ArrayAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Array
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		Some(self as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Array(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -275,13 +342,13 @@ impl Ast for ArrayAst {
 }
 
 impl Ast for PointerAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Pointer
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		Some(self as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Pointer(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -302,13 +369,13 @@ impl IntegerAst {
 }
 
 impl Ast for IntegerAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Integer
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		Some(self as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Integer(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -345,13 +412,13 @@ impl IdentAst {
 }
 
 impl Ast for IdentAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Ident
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		Some(self as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Ident(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -388,13 +455,13 @@ impl FloatAst {
 }
 
 impl Ast for FloatAst {
-	#[inline(always)]
-	fn kind(&self) -> AstKind {
-		Float
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
 	}
 
-	fn optimize(~self) -> Option<Box<Ast>> {
-		Some(self as Box<Ast>)
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Float(self))
 	}
 
 	fn compile(&self) -> ~[u8] {
@@ -419,6 +486,33 @@ impl Ast for FloatAst {
 		println!("{}FloatAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
 		println!("{}{}", spaces, "}");
+	}
+}
+
+impl CodeAst {
+	pub fn new(thunk: fn(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst) -> CodeAst {
+		CodeAst {
+			thunk: thunk
+		}
+	}
+}
+
+impl Ast for CodeAst {
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
+	}
+
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Code(self))
+	}
+
+	fn compile(&self) -> ~[u8] {
+		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		
 	}
 }
 

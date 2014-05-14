@@ -66,12 +66,12 @@ impl Parser {
 		self.column = 1;
 	}
 
-	pub fn parse_code(&mut self, code: ~str) -> Box<Ast> {
+	pub fn parse_code(&mut self, code: ~str) -> ExprAst {
 		self.load_code(code);
 		self.parse()
 	}
 
-	pub fn parse(&mut self) -> Box<Ast> {
+	pub fn parse(&mut self) -> ExprAst {
 		let mut root = RootAst::new();
 		self.skip_whitespace();
 		while self.pos < self.code.len() {
@@ -85,15 +85,15 @@ impl Parser {
 			root.push(expr);
 			self.skip_whitespace();
 		}
-		box root as Box<Ast>
+		Root(box root)
 	}
 
-	fn parse_expr(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_expr(&mut self) -> ParseResult<ExprAst> {
 		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_ident, parse_string, parse_list, parse_array);
 		Ok(expr)
 	}
 
-	fn parse_sexpr(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_sexpr(&mut self) -> ParseResult<ExprAst> {
 		self.skip_whitespace();
 		if self.pos == self.code.len() {
 			Err(self.eof_error())
@@ -112,14 +112,14 @@ impl Parser {
 				}
 				operands.push(try!(self.parse_expr()));
 			}
-			Ok(box SexprAst::new(op, FromVec::from_vec(operands)) as Box<Ast>)
+			Ok(Sexpr(box SexprAst::new(op, FromVec::from_vec(operands))))
 		} else {
 			Err(self.unexpected_error("'('", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
-	fn parse_integer(&mut self) -> ParseResult<Box<Ast>> {
-		Ok(box IntegerAst::new(try!(self.parse_integer_val()).val0()) as Box<Ast>)
+	fn parse_integer(&mut self) -> ParseResult<ExprAst> {
+		Ok(Integer(box IntegerAst::new(try!(self.parse_integer_val()).val0())))
 	}
 
 	fn parse_integer_val(&mut self) -> ParseResult<(i64, uint)> {
@@ -148,7 +148,7 @@ impl Parser {
 		}
 	}
 
-	fn parse_float(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_float(&mut self) -> ParseResult<ExprAst> {
 		let front = try!(self.parse_integer_val()).val0();
 		if self.pos + 1 >= self.code.len() {
 			Err(self.eof_error())
@@ -160,12 +160,12 @@ impl Parser {
 				Err(self.unexpected_error("float", format!("'{}'", self.code.char_at(self.pos))))
 			} else {
 				let back = try!(self.parse_integer_val());
-				Ok(box FloatAst::new(front as f64 + back.val0() as f64 / num::pow(10, back.val1()) as f64) as Box<Ast>)
+				Ok(Float(box FloatAst::new(front as f64 + back.val0() as f64 / num::pow(10, back.val1()) as f64)))
 			}
 		}
 	}
 
-	fn parse_array(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_array(&mut self) -> ParseResult<ExprAst> {
 		self.skip_whitespace();
 		if self.pos + 1 >= self.code.len() {
 			Err(self.eof_error())
@@ -183,13 +183,13 @@ impl Parser {
 				}
 				items.push(try!(self.parse_expr()));
 			}
-			Ok(box ArrayAst::new(FromVec::from_vec(items)) as Box<Ast>)
+			Ok(Array(box ArrayAst::new(FromVec::from_vec(items))))
 		} else {
 			Err(self.unexpected_error("'['", format!("'{}'", self.code.char_at(self.pos))))
 		}
 	}
 
-	fn parse_list(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_list(&mut self) -> ParseResult<ExprAst> {
 		self.skip_whitespace();
 		if self.pos + 2 >= self.code.len() {
 			Err(self.eof_error())
@@ -209,7 +209,7 @@ impl Parser {
 					}
 					items.push(try!(self.parse_expr()));
 				}
-				Ok(box ListAst::new(FromVec::from_vec(items)) as Box<Ast>)
+				Ok(List(box ListAst::new(FromVec::from_vec(items))))
 			} else {
 				Err(self.unexpected_error("'('", format!("'{}'", self.code.char_at(self.pos))))
 			}
@@ -218,9 +218,9 @@ impl Parser {
 		}
 	}
 
-	fn parse_ident(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_ident(&mut self) -> ParseResult<ExprAst> {
 		let val = try!(self.parse_ident_stack());
-		Ok(box val as Box<Ast>)
+		Ok(Ident(box val))
 	}
 
 	fn parse_ident_stack(&mut self) -> ParseResult<IdentAst> {
@@ -258,7 +258,7 @@ impl Parser {
 		}
 	}
 
-	fn parse_string(&mut self) -> ParseResult<Box<Ast>> {
+	fn parse_string(&mut self) -> ParseResult<ExprAst> {
 		self.skip_whitespace();
 		if self.pos == self.code.len() {
 			Err(self.eof_error())
@@ -278,7 +278,7 @@ impl Parser {
 				Err(self.eof_error())
 			} else {
 				self.inc_pos_col();
-				Ok(box StringAst::new(buf.into_owned()) as Box<Ast>)
+				Ok(String(box StringAst::new(buf.into_owned())))
 			}
 		} else {
 			Err(self.unexpected_error("\"", format!("'{}'", self.code.char_at(self.pos))))
