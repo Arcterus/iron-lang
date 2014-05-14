@@ -50,10 +50,9 @@ impl<'a> Interpreter<'a> {
 	}
 
 	pub fn execute(&mut self) -> int {
-		let mut root: &RootAst = match self.parser.parse() { Root(ast) => ast, _ => unreachable!() };
+		let mut root: Box<RootAst> = match self.parser.parse() { Root(ast) => ast, _ => unreachable!() };
 		if self.mode != Debug {
-			// TODO: get this to work
-			//root = match root.optimize().unwrap() { Root(ast) => ast, _ => unreachable!() };
+			root = match root.optimize().unwrap() { Root(ast) => ast, _ => unreachable!() };
 		}
 		for ast in root.asts.iter() {
 			self.execute_node(ast);
