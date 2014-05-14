@@ -9,6 +9,7 @@
 extern crate collections;
 extern crate getopts;
 
+use std::io;
 use std::os;
 
 mod interp;
@@ -40,6 +41,9 @@ fn main() {
 		help_menu(program, opts);
 	} else if matches.opt_present("V") {
 		version();
+	} else if matches.free.len() == 0 {
+		error!("REPL NYI");
+		os::set_exit_status(1);
 	} else {
 		let mode =
 			if matches.opt_present("d") {
@@ -47,11 +51,20 @@ fn main() {
 			} else {
 				interp::Release
 			};
+		let code = match io::File::open(&Path::new(matches.free.get(0).clone())) {
+			Ok(mut file) => file.read_to_str().unwrap(),
+			Err(f) => {
+				error!("{}", f.to_str());
+				os::set_exit_status(1);
+				return
+			}
+		};
 		let mut interp = interp::Interpreter::new();
 		interp.set_mode(mode);
 		//interp.load_code("(fn hi [param] (+ 1 param))".to_owned());
 		//interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4) [hi 2.354 0.1 \"hi\" (hi)])".to_owned());
-		interp.load_code("(println (add 2 3.4))".to_owned());
+		//interp.load_code("(println (add 2 3.4))".to_owned());
+		interp.load_code(code);
 		//interp.dump_ast();
 		println!("exit status: {}", interp.execute());
 	}

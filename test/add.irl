@@ -1,0 +1,4 @@
+(println (add 2 3.4))
+(print "hi")
+(println "hello
+ world")
