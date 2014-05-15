@@ -1,0 +1,6 @@
+(define hi (+ 3 4))
+(println (+ hi 5))
+(define test (fn
+	(println "hello")
+))
+(test)

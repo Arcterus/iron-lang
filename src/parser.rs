@@ -230,31 +230,25 @@ impl Parser {
 		} else {
 			let mut ident = StrBuf::new();
 			loop {
-				match self.code.char_at(self.pos) {
-					ch @ 'a' .. 'z' | ch @ 'A' .. 'Z' | ch @ '_' => {
-						ident.push_char(ch);
-					}
-					num @ '0' .. '9' => {
-						if ident.len() > 0 {
-							ident.push_char(num);
-						} else {
-							return Err(self.unexpected_error("ident", format!("'{}'", num)));
-						}
-					}
-					other => {
-						if ident.len() > 0 {
-							break
-						} else {
-							return Err(self.unexpected_error("ident", format!("'{}'", other)));
-						}
-					}
-				};
+				let ch = self.code.char_at(self.pos);
+				if ch.is_digit() || ch.is_whitespace() || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '\'' || ch == '"' {
+					break;
+				}
+				ident.push_char(ch);
 				self.inc_pos_col();
 				if self.pos == self.code.len() {
 					break;
 				}
 			}
-			Ok(IdentAst::new(ident.into_owned()))
+			if ident.len() == 0 {
+				if self.pos == self.code.len() {
+					Err(self.eof_error())
+				} else {
+					Err(self.unexpected_error("ident", format!("'{}'", self.code.char_at(self.pos))))
+				}
+			} else {
+				Ok(IdentAst::new(ident.into_owned()))
+			}
 		}
 	}
 

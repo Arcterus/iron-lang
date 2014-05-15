@@ -76,7 +76,7 @@ pub struct FloatAst {
 
 #[deriving(Clone)]
 pub struct CodeAst {
-	pub thunk: fn(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst
+	pub code: ~[ExprAst]
 }
 
 impl Ast for ExprAst {
@@ -490,9 +490,9 @@ impl Ast for FloatAst {
 }
 
 impl CodeAst {
-	pub fn new(thunk: fn(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst) -> CodeAst {
+	pub fn new(code: ~[ExprAst]) -> CodeAst {
 		CodeAst {
-			thunk: thunk
+			code: code
 		}
 	}
 }

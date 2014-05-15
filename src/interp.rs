@@ -1,4 +1,6 @@
 use std::{i64, f64};
+use std::rc::Rc;
+use std::vec::FromVec;
 
 use collections;
 use self::parser::Parser;
@@ -12,25 +14,26 @@ pub enum InterpMode {
 	Release
 }
 
+#[deriving(Clone)]
 enum EnvValue {
-	Code(fn(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst),
+	Code(fn(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst),
 	Value(ExprAst)
 }
 
-pub struct Interpreter<'a> {
+pub struct Interpreter {
 	mode: InterpMode,
 	parser: Parser,
-	env: Environment<'a>,
+	env: Environment,
 	stack: Vec<ExprAst>
 }
 
-struct Environment<'a> {
-	pub parent: Option<&'a Environment<'a>>,
+pub struct Environment {
+	pub parent: Option<Rc<Environment>>,
 	pub values: collections::HashMap<~str, EnvValue>
 }
 
-impl<'a> Interpreter<'a> {
-	pub fn new() -> Interpreter<'a> {
+impl Interpreter {
+	pub fn new() -> Interpreter {
 		let mut env = Environment::new(None);
 		env.populate_default();
 		Interpreter {
@@ -55,29 +58,45 @@ impl<'a> Interpreter<'a> {
 			root = match root.optimize().unwrap() { Root(ast) => ast, _ => unreachable!() };
 		}
 		for ast in root.asts.iter() {
-			self.execute_node(ast);
+			Interpreter::execute_node(&mut self.env, &mut self.stack, ast);
 		}
 		0 // exit status
 	}
 
-	fn execute_node(&mut self, node: &ExprAst) {
+	pub fn execute_node(env: &mut Environment, stack: &mut Vec<ExprAst>, node: &ExprAst) {
 		match *node {
 			Sexpr(ref ast) => {
-				for subast in ast.operands.iter() {
-					self.execute_node(subast);
+				let val: &str = ast.op.value;
+				if val == "fn" {  // XXX: maybe refactor so this doesn't need to be treated specially?
+					for subast in ast.operands.iter() {
+						stack.push(subast.clone());
+					}
+				} else {
+					for subast in ast.operands.iter() {
+						Interpreter::execute_node(env, stack, subast);
+					}
 				}
-				match self.env.values.find(&ast.op.value) {
-					Some(thing) => match *thing {
-						Code(ref thunk) => {
-							let val = (*thunk)(&mut self.stack, ast.operands.len());
-							self.stack.push(val)
-						}
-						Value(_) => fail!("Not a thunk")  // XXX: fix
-					},
+				let thing = match env.values.find(&ast.op.value) {
+					Some(thing) => (*thing).clone(),
 					None => fail!("Could not find key")  // XXX: also fix
+				};
+				match thing {
+					Code(thunk) => {
+						let val = thunk(env as *mut Environment, stack as *mut Vec<ExprAst>, ast.operands.len());
+						stack.push(val);
+					}
+					Value(ast) => match ast {
+						super::ast::Code(ref ast) => Interpreter::execute_node(env, stack, &super::ast::Code(ast.clone())),
+						_ => fail!("Not executable")  // XXX: fix
+					}
+				};
+			}
+			super::ast::Code(ref ast) => {
+				for subast in ast.code.iter() {
+					Interpreter::execute_node(env, stack, subast);
 				}
-			},
-			ref other => self.stack.push(other.clone())  // XXX: probably can be fixed
+			}
+			ref other => stack.push(other.clone())  // XXX: probably can be fixed
 		}
 
 	}
@@ -87,8 +106,8 @@ impl<'a> Interpreter<'a> {
 	}
 }
 
-impl<'a> Environment<'a> {
-	pub fn new(parent: Option<&'a Environment<'a>>) -> Environment<'a> {
+impl Environment {
+	pub fn new(parent: Option<Rc<Environment>>) -> Environment {
 		Environment {
 			parent: parent,
 			values: collections::HashMap::new()
@@ -96,12 +115,14 @@ impl<'a> Environment<'a> {
 	}
 
 	pub fn populate_default(&mut self) {
-		self.values.insert("add".to_owned(), Code(Environment::add));
+		self.values.insert("+".to_owned(), Code(Environment::add));
 		self.values.insert("print".to_owned(), Code(Environment::print));
 		self.values.insert("println".to_owned(), Code(Environment::println));
+		self.values.insert("define".to_owned(), Code(Environment::define));
+		self.values.insert("fn".to_owned(), Code(Environment::function));
 	}
 
-	fn add(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn add(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		let mut ops = ops;
 		let mut val = 0f64;
 		let mut decimal = false;
@@ -114,6 +135,18 @@ impl<'a> Environment<'a> {
 					decimal = true;
 					val += ast.value;
 				}
+				Ident(ref ast) => {
+					match unsafe { (*env).values.find(&ast.value) } {
+						Some(thing) => match *thing {
+							Value(ref ast) => {
+								unsafe { (*stack).push(ast.clone()); }
+								ops += 1;
+							}
+							_ => fail!("cannot add to a thunk")  // XXX: fix
+						},
+						None => fail!("could not find ident")  // XXX: fix
+					}
+				}
 				ref other => {
 					fail!("NYI"); // XXX: implement obviously
 				}
@@ -123,11 +156,11 @@ impl<'a> Environment<'a> {
 		if decimal { Float(box FloatAst::new(val)) } else { Integer(box IntegerAst::new(val as i64)) }
 	}
 
-	fn print(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn print(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		let mut ops = ops;
 		while ops > 0 {
 			match unsafe { (*stack).pop() }.unwrap() {
-				Integer(ref ast) => i64::to_str_bytes(ast.value, 10, |v| print!("{}", v)),
+				Integer(ref ast) => print!("{}", ast.value.to_str()),
 				Float(ref ast) => print!("{}", f64::to_str(ast.value)),
 				String(ref ast) => print!("{}", ast.string),
 				ref other => fail!()  // XXX: more of the same
@@ -137,9 +170,41 @@ impl<'a> Environment<'a> {
 		Integer(box IntegerAst::new(0))  // TODO: this should probably be result of output
 	}
 
-	fn println(stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
-		let val = Environment::print(stack, ops);
+	fn println(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		let val = Environment::print(env, stack, ops);
 		println!("");
 		val
+	}
+
+	// should be able to take stuff like (define var value)
+	fn define(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		let ops = ops;
+		if ops != 2 {
+			fail!("define can only take two arguments");  // XXX: fix
+		}
+		let val = match unsafe { (*stack).pop() }.unwrap() {
+			Sexpr(ast) => {
+				Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &Sexpr(ast));
+				Value(unsafe { (*stack).pop() }.unwrap())
+			}
+			other => Value(other)
+		};
+		let name = match unsafe { (*stack).pop() }.unwrap() {
+			Ident(ref ast) => ast.value.clone(),
+			_ => fail!("define must take ident for first argument")  // XXX: fix
+		};
+		// TODO: add checking in env to see if conflicting names
+		unsafe { (*env).values.insert(name.clone(), val); }
+		Ident(box IdentAst::new(name))
+	}
+
+	fn function(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		let mut ops = ops;
+		let mut code = vec!();
+		while ops > 0 {
+			unsafe { code.push((*stack).remove((*stack).len() - ops).unwrap()); }
+			ops -= 1;
+		}
+		super::ast::Code(box CodeAst::new(FromVec::from_vec(code)))
 	}
 }
