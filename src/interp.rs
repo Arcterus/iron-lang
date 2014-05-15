@@ -1,5 +1,4 @@
-use std::{i64, f64};
-use std::rc::Rc;
+use std::f64;
 use std::vec::FromVec;
 
 use collections;
@@ -28,7 +27,7 @@ pub struct Interpreter {
 }
 
 pub struct Environment {
-	pub parent: Option<Rc<Environment>>,
+	pub parent: Option<*mut Environment>,
 	pub values: collections::HashMap<~str, EnvValue>
 }
 
@@ -77,7 +76,7 @@ impl Interpreter {
 						Interpreter::execute_node(env, stack, subast);
 					}
 				}
-				let thing = match env.values.find(&ast.op.value) {
+				let thing = match env.find(&ast.op.value) {
 					Some(thing) => (*thing).clone(),
 					None => fail!("Could not find key")  // XXX: also fix
 				};
@@ -89,20 +88,17 @@ impl Interpreter {
 					Value(ast) => match ast {
 						super::ast::Code(ast) => {
 							let mut count = 0;
-							let mut params = vec!();
+							let mut subenv = Environment::new(Some(env as *mut Environment));
 							for param in ast.params.items.iter() {
 								let len = stack.len();
 								match *param {
-									Ident(ref idast) => {params.push(idast.value.clone());env.values.insert(idast.value.clone(), Value(stack.remove(len - ast.params.items.len() + count).unwrap()))},
+									Ident(ref idast) => subenv.values.insert(idast.value.clone(), Value(stack.remove(len - ast.params.items.len() + count).unwrap())),
 									_ => fail!() // XXX: fix
 								};
 								count += 1;
 							}
 							for subast in ast.code.iter() {
-								Interpreter::execute_node(env, stack, subast);
-							}
-							for param in params.iter() {  // TODO: remove in exchange for multiple Environments
-								env.values.remove(param);
+								Interpreter::execute_node(&mut subenv, stack, subast);
 							}
 						}
 						_ => fail!("Not executable")  // XXX: fix
@@ -111,7 +107,6 @@ impl Interpreter {
 			}
 			ref other => stack.push(other.clone())  // XXX: probably can be fixed
 		}
-
 	}
 
 	pub fn dump_ast(&mut self) {
@@ -120,10 +115,20 @@ impl Interpreter {
 }
 
 impl Environment {
-	pub fn new(parent: Option<Rc<Environment>>) -> Environment {
+	pub fn new(parent: Option<*mut Environment>) -> Environment {
 		Environment {
 			parent: parent,
 			values: collections::HashMap::new()
+		}
+	}
+
+	pub fn find<'a>(&'a self, key: &~str) -> Option<&'a EnvValue> {
+		match self.values.find(key) {
+			Some(m) => Some(m),
+			None => match self.parent {
+				Some(env) => unsafe { (*env).find(key) },
+				None => None
+			}
 		}
 	}
 
@@ -148,7 +153,7 @@ impl Environment {
 					val += ast.value;
 				}
 				Ident(ref ast) => {
-					match unsafe { (*env).values.find(&ast.value) } {
+					match unsafe { (*env).find(&ast.value) } {
 						Some(thing) => match *thing {
 							Value(ref ast) => {
 								unsafe { (*stack).push(ast.clone()); }
@@ -159,7 +164,7 @@ impl Environment {
 						None => fail!("could not find ident")  // XXX: fix
 					}
 				}
-				ref other => {
+				_ => {
 					fail!("NYI"); // XXX: implement obviously
 				}
 			}
@@ -175,7 +180,7 @@ impl Environment {
 				Integer(ref ast) => print!("{}", ast.value.to_str()),
 				Float(ref ast) => print!("{}", f64::to_str(ast.value)),
 				Ident(ref ast) => {
-					match unsafe { (*env).values.find(&ast.value) } {
+					match unsafe { (*env).find(&ast.value) } {
 						Some(value) => match *value {
 							Value(ref value) => {
 								unsafe { (*stack).insert((*stack).len() + 1 - ops, value.clone()); }
@@ -201,7 +206,7 @@ impl Environment {
 							match ch {
 								'n' => println!("{}", output.to_owned()),
 								't' => print!("{}\t", output.to_owned()),
-								other => fail!("\\\\{} not a valid escape sequence", ch)  // XXX: fix
+								other => fail!("\\\\{} not a valid escape sequence", other)  // XXX: fix
 							}
 							escape = false;
 							output.truncate(0);
@@ -214,7 +219,7 @@ impl Environment {
 					}
 					print!("{}", output.into_owned());
 				},
-				ref other => fail!()  // XXX: more of the same
+				_ => fail!()  // XXX: more of the same
 			}
 			ops -= 1;
 		}
@@ -243,7 +248,7 @@ impl Environment {
 		Ident(box IdentAst::new(name))
 	}
 
-	fn function(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn function(_: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		let mut ops = ops;
 		let mut code = vec!();
 		if ops == 0 {

@@ -356,9 +356,7 @@ impl Ast for PointerAst {
 		~[]
 	}
 
-	fn dump_level(&self, level: uint) {
-		
-	}
+	fn dump_level(&self, _: uint) { }
 }
 
 impl IntegerAst {
@@ -513,8 +511,6 @@ impl Ast for CodeAst {
 		~[]
 	}
 
-	fn dump_level(&self, level: uint) {
-		
-	}
+	fn dump_level(&self, _: uint) { }
 }
 
