@@ -76,6 +76,7 @@ pub struct FloatAst {
 
 #[deriving(Clone)]
 pub struct CodeAst {
+	pub params: ArrayAst,
 	pub code: ~[ExprAst]
 }
 
@@ -490,8 +491,9 @@ impl Ast for FloatAst {
 }
 
 impl CodeAst {
-	pub fn new(code: ~[ExprAst]) -> CodeAst {
+	pub fn new(params: ArrayAst, code: ~[ExprAst]) -> CodeAst {
 		CodeAst {
+			params: params,
 			code: code
 		}
 	}

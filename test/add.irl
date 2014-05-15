@@ -1,4 +1,4 @@
-(println (+ 2 3.4))
+(print (+ 2 3.4) "\n")
 (print "hi")
-(println "hello
- world")
+(print "hello
+ world\n")

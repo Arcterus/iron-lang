@@ -59,6 +59,7 @@ impl Interpreter {
 		}
 		for ast in root.asts.iter() {
 			Interpreter::execute_node(&mut self.env, &mut self.stack, ast);
+			self.stack.clear();
 		}
 		0 // exit status
 	}
@@ -86,15 +87,27 @@ impl Interpreter {
 						stack.push(val);
 					}
 					Value(ast) => match ast {
-						super::ast::Code(ref ast) => Interpreter::execute_node(env, stack, &super::ast::Code(ast.clone())),
+						super::ast::Code(ast) => {
+							let mut count = 0;
+							let mut params = vec!();
+							for param in ast.params.items.iter() {
+								let len = stack.len();
+								match *param {
+									Ident(ref idast) => {params.push(idast.value.clone());env.values.insert(idast.value.clone(), Value(stack.remove(len - ast.params.items.len() + count).unwrap()))},
+									_ => fail!() // XXX: fix
+								};
+								count += 1;
+							}
+							for subast in ast.code.iter() {
+								Interpreter::execute_node(env, stack, subast);
+							}
+							for param in params.iter() {  // TODO: remove in exchange for multiple Environments
+								env.values.remove(param);
+							}
+						}
 						_ => fail!("Not executable")  // XXX: fix
 					}
 				};
-			}
-			super::ast::Code(ref ast) => {
-				for subast in ast.code.iter() {
-					Interpreter::execute_node(env, stack, subast);
-				}
 			}
 			ref other => stack.push(other.clone())  // XXX: probably can be fixed
 		}
@@ -117,7 +130,6 @@ impl Environment {
 	pub fn populate_default(&mut self) {
 		self.values.insert("+".to_owned(), Code(Environment::add));
 		self.values.insert("print".to_owned(), Code(Environment::print));
-		self.values.insert("println".to_owned(), Code(Environment::println));
 		self.values.insert("define".to_owned(), Code(Environment::define));
 		self.values.insert("fn".to_owned(), Code(Environment::function));
 	}
@@ -159,21 +171,54 @@ impl Environment {
 	fn print(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		let mut ops = ops;
 		while ops > 0 {
-			match unsafe { (*stack).pop() }.unwrap() {
+			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 				Integer(ref ast) => print!("{}", ast.value.to_str()),
 				Float(ref ast) => print!("{}", f64::to_str(ast.value)),
-				String(ref ast) => print!("{}", ast.string),
+				Ident(ref ast) => {
+					match unsafe { (*env).values.find(&ast.value) } {
+						Some(value) => match *value {
+							Value(ref value) => {
+								unsafe { (*stack).insert((*stack).len() + 1 - ops, value.clone()); }
+								ops += 1;
+							}
+							Code(_) => fail!() // XXX: fix
+						},
+						None => fail!() // XXX: fix
+					}
+				}
+				String(ref ast) => {
+					let mut output = StrBuf::new();
+					let mut escape = false;
+					for ch in ast.string.chars() {
+						if ch == '\\' {
+							if escape {
+								escape = false;
+								output.push_char('\\');
+							} else {
+								escape = true;
+							}
+						} else if escape {
+							match ch {
+								'n' => println!("{}", output.to_owned()),
+								't' => print!("{}\t", output.to_owned()),
+								other => fail!("\\\\{} not a valid escape sequence", ch)  // XXX: fix
+							}
+							escape = false;
+							output.truncate(0);
+						} else {
+							output.push_char(ch);
+						}
+					}
+					if escape {
+						fail!("unterminated escape sequence");  // XXX: fix
+					}
+					print!("{}", output.into_owned());
+				},
 				ref other => fail!()  // XXX: more of the same
 			}
 			ops -= 1;
 		}
 		Integer(box IntegerAst::new(0))  // TODO: this should probably be result of output
-	}
-
-	fn println(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
-		let val = Environment::print(env, stack, ops);
-		println!("");
-		val
 	}
 
 	// should be able to take stuff like (define var value)
@@ -201,10 +246,18 @@ impl Environment {
 	fn function(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		let mut ops = ops;
 		let mut code = vec!();
+		if ops == 0 {
+			fail!("fn need at least one argument");  // XXX: fix
+		}
+		let params = match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
+			Array(ast) => *ast,
+			_ => fail!() // XXX: fix
+		};
+		ops -= 1;
 		while ops > 0 {
 			unsafe { code.push((*stack).remove((*stack).len() - ops).unwrap()); }
 			ops -= 1;
 		}
-		super::ast::Code(box CodeAst::new(FromVec::from_vec(code)))
+		super::ast::Code(box CodeAst::new(params, FromVec::from_vec(code)))
 	}
 }

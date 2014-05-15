@@ -24,6 +24,7 @@ fn main() {
 
 	let opts = [
 		getopts::optflag("d", "debug", "debug mode"),
+		getopts::optflag("", "ast", "print out the AST instead of interpreting the code"),
 		getopts::optflag("V", "version", "print the version number"),
 		getopts::optflag("h", "help", "print this help menu"),
 	];
@@ -65,8 +66,11 @@ fn main() {
 		//interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4) [hi 2.354 0.1 \"hi\" (hi)])".to_owned());
 		//interp.load_code("(println (add 2 3.4))".to_owned());
 		interp.load_code(code);
-		//interp.dump_ast();
-		println!("exit status: {}", interp.execute());
+		if matches.opt_present("ast") {
+			interp.dump_ast();
+		} else {
+			println!("exit status: {}", interp.execute());
+		}
 	}
 }
 

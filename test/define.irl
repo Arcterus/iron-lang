@@ -1,6 +1,16 @@
+(define println (fn [msg]
+	(print msg "\n")
+))
 (define hi (+ 3 4))
 (println (+ hi 5))
-(define test (fn
+(println "println string test")
+(define test (fn []
 	(println "hello")
 ))
 (test)
+(println (+ 3 4.0))
+(define anothertest (fn [hi ya]
+	(println hi)
+	(println ya)
+))
+(anothertest "hi" "person")
