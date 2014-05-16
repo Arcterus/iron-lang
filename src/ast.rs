@@ -2,7 +2,7 @@ use std::vec::FromVec;
 
 static INDENTATION: uint = 2;
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub enum ExprAst {
 	Root(Box<RootAst>),
 	Sexpr(Box<SexprAst>),
@@ -29,58 +29,58 @@ pub trait Ast {
 	fn dump_level(&self, level: uint);
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct RootAst {
 	pub asts: Vec<ExprAst>
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct SexprAst {
 	pub op: IdentAst,
 	pub operands: ~[ExprAst]
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct StringAst {
 	pub string: ~str
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct ListAst {
 	pub items: ~[ExprAst]
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct ArrayAst {
 	pub items: ~[ExprAst]
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct PointerAst {
 	pub pointee: ExprAst
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct IdentAst {
 	pub value: ~str
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct IntegerAst {
 	pub value: i64
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct FloatAst {
 	pub value: f64
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct BooleanAst {
 	pub value: bool
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct CodeAst {
 	pub params: ArrayAst,
 	pub code: ~[ExprAst]

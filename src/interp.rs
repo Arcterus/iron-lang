@@ -73,6 +73,13 @@ impl Interpreter {
 					for subast in sast.operands.iter() {
 						stack.push(subast.clone());
 					}
+				} else if val == "if" {
+					if sast.operands.len() > 0 {
+						Interpreter::execute_node(env, stack, sast.operands.get(0).unwrap());
+					}
+					for subast in sast.operands.slice_from(1).iter() {
+						stack.push(subast.clone());
+					}
 				} else {
 					for subast in sast.operands.iter() {
 						Interpreter::execute_node(env, stack, subast);
@@ -158,7 +165,9 @@ impl Environment {
 
 	pub fn populate_default(&mut self) {
 		self.values.insert("+".to_owned(), Code(Environment::add));
+		self.values.insert("=".to_owned(), Code(Environment::equal));
 		self.values.insert("print".to_owned(), Code(Environment::print));
+		self.values.insert("if".to_owned(), Code(Environment::ifexpr));
 		self.values.insert("define".to_owned(), Code(Environment::define));
 		self.values.insert("fn".to_owned(), Code(Environment::function));
 		self.values.insert("get".to_owned(), Code(Environment::get));
@@ -367,5 +376,44 @@ impl Environment {
 			_ => fail!()  // XXX: fix
 		};
 		Integer(box IntegerAst::new(arr.items.len() as i64))
+	}
+
+	fn equal(_: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("equal");
+		let mut ops = ops;
+		if ops < 2 {
+			fail!("= needs at least two operands"); // XXX: fix
+		}
+		let cmpast = unsafe { (*stack).pop() }.unwrap();
+		ops -= 1;
+		while ops > 0 {
+			if unsafe { (*stack).pop() }.unwrap() != cmpast {
+				return Boolean(box BooleanAst::new(false));
+			}
+			ops -= 1;
+		}
+		Boolean(box BooleanAst::new(true))
+	}
+
+	fn ifexpr(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("if");
+		if ops < 2 || ops > 3 {
+			fail!("if needs >= 2 && <= 4 operands");  // XXX: fix
+		}
+		let cond = match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
+			Boolean(ast) => ast.value,
+			_ => fail!() // XXX: fix
+		};
+		let ontrue = unsafe { (*stack).remove((*stack).len() - ops + 1) }.unwrap();
+		if cond {
+			Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &ontrue);
+		}
+		if ops - 2 > 0 {
+			let onfalse = unsafe { (*stack).pop() }.unwrap();
+			if !cond {
+				Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &onfalse);
+			}
+		}
+		unsafe { (*stack).pop() }.unwrap()
 	}
 }

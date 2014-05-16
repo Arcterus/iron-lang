@@ -4,7 +4,7 @@
 (println (len var))
 (define each (fn [i values]
   (println (get values i))
-  (each (+ i 1) values)))
+  (if (= (+ i 1) (len values)) 0 (each (+ i 1) values))))
 (define each-variadic (fn [i values...] (each 0 values)))
 (each 0 var)
 (each-variadic 0 1 2 3 4 5)
