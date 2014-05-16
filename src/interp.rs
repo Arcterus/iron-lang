@@ -247,6 +247,7 @@ impl Environment {
 					}
 					print!("{}", output.into_owned());
 				},
+				Boolean(ast) => print!("{}", ast.value),
 				_ => fail!()  // XXX: more of the same
 			}
 			ops -= 1;

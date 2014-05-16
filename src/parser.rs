@@ -89,7 +89,7 @@ impl Parser {
 	}
 
 	fn parse_expr(&mut self) -> ParseResult<ExprAst> {
-		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_ident, parse_string, parse_list, parse_array);
+		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_boolean, parse_ident, parse_string, parse_list, parse_array);
 		Ok(expr)
 	}
 
@@ -276,6 +276,25 @@ impl Parser {
 			}
 		} else {
 			Err(self.unexpected_error("\"", format!("'{}'", self.code.char_at(self.pos))))
+		}
+	}
+
+	fn parse_boolean(&mut self) -> ParseResult<ExprAst> {
+		self.skip_whitespace();
+		if self.pos == self.code.len() {
+			Err(self.eof_error())
+		} else {
+			let mut buf = StrBuf::new();
+			while self.pos < self.code.len() && self.code.char_at(self.pos).is_alphabetic() {
+				buf.push_char(self.code.char_at(self.pos));
+				self.inc_pos_col();
+			}
+			let string: &str = buf.into_owned();
+			match string {
+				"true" => Ok(Boolean(box BooleanAst::new(true))),
+				"false" => Ok(Boolean(box BooleanAst::new(false))),
+				other => Err(self.unexpected_error("\"true\" or \"false\"", format!("\"{}\"", other)))
+			}
 		}
 	}
 

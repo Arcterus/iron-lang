@@ -13,6 +13,7 @@ pub enum ExprAst {
 	Ident(Box<IdentAst>),
 	Integer(Box<IntegerAst>),
 	Float(Box<FloatAst>),
+	Boolean(Box<BooleanAst>),
 	Code(Box<CodeAst>)
 }
 
@@ -75,6 +76,11 @@ pub struct FloatAst {
 }
 
 #[deriving(Clone)]
+pub struct BooleanAst {
+	pub value: bool
+}
+
+#[deriving(Clone)]
 pub struct CodeAst {
 	pub params: ArrayAst,
 	pub code: ~[ExprAst]
@@ -97,6 +103,7 @@ impl Ast for ExprAst {
 			Ident(ast) => ast.optimize_owned(),
 			Integer(ast) => ast.optimize_owned(),
 			Float(ast) => ast.optimize_owned(),
+			Boolean(ast) => ast.optimize_owned(),
 			Code(ast) => ast.optimize_owned()
 		}
 	}
@@ -112,6 +119,7 @@ impl Ast for ExprAst {
 			Ident(ref ast) => ast.compile(),
 			Integer(ref ast) => ast.compile(),
 			Float(ref ast) => ast.compile(),
+			Boolean(ref ast) => ast.compile(),
 			Code(ref ast) => ast.compile()
 		}
 	}
@@ -127,6 +135,7 @@ impl Ast for ExprAst {
 			Ident(ref ast) => ast.dump_level(level),
 			Integer(ref ast) => ast.dump_level(level),
 			Float(ref ast) => ast.dump_level(level),
+			Boolean(ref ast) => ast.dump_level(level),
 			Code(ref ast) => ast.dump_level(level)
 		}
 	}
@@ -483,6 +492,49 @@ impl Ast for FloatAst {
 				buf.into_owned()
 			};
 		println!("{}FloatAst {}", spaces, "{");
+		println!("{}{}{}", spaces, indent, self.value);
+		println!("{}{}", spaces, "}");
+	}
+}
+
+impl BooleanAst {
+	pub fn new(value: bool) -> BooleanAst {
+		BooleanAst {
+			value: value
+		}
+	}
+}
+
+impl Ast for BooleanAst {
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
+	}
+
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Boolean(self))
+	}
+
+	fn compile(&self) -> ~[u8] {
+		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}BooleanAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
 		println!("{}{}", spaces, "}");
 	}
