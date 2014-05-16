@@ -1,0 +1,1 @@
+(define println [msg] (print msg "\n"))

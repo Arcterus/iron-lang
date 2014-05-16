@@ -52,6 +52,7 @@ impl Interpreter {
 	}
 
 	pub fn execute(&mut self) -> int {
+		debug!("execute");
 		let mut root: Box<RootAst> = match self.parser.parse() { Root(ast) => ast, _ => unreachable!() };
 		if self.mode != Debug {
 			root = match root.optimize().unwrap() { Root(ast) => ast, _ => unreachable!() };
@@ -64,35 +65,58 @@ impl Interpreter {
 	}
 
 	pub fn execute_node(env: &mut Environment, stack: &mut Vec<ExprAst>, node: &ExprAst) {
+		debug!("execute_node");
 		match *node {
-			Sexpr(ref ast) => {
-				let val: &str = ast.op.value;
+			Sexpr(ref sast) => {
+				let val: &str = sast.op.value;
 				if val == "fn" {  // XXX: maybe refactor so this doesn't need to be treated specially?
-					for subast in ast.operands.iter() {
+					for subast in sast.operands.iter() {
 						stack.push(subast.clone());
 					}
 				} else {
-					for subast in ast.operands.iter() {
+					for subast in sast.operands.iter() {
 						Interpreter::execute_node(env, stack, subast);
 					}
 				}
-				let thing = match env.find(&ast.op.value) {
+				let thing = match env.find(&sast.op.value) {
 					Some(thing) => (*thing).clone(),
 					None => fail!("Could not find key")  // XXX: also fix
 				};
 				match thing {
 					Code(thunk) => {
-						let val = thunk(env as *mut Environment, stack as *mut Vec<ExprAst>, ast.operands.len());
+						debug!("executing thunk...");
+						let val = thunk(env as *mut Environment, stack as *mut Vec<ExprAst>, sast.operands.len());
 						stack.push(val);
 					}
 					Value(ast) => match ast {
 						super::ast::Code(ast) => {
+							debug!("evaluating code...");
 							let mut count = 0;
 							let mut subenv = Environment::new(Some(env as *mut Environment));
+							let len = sast.operands.len();
+							let idx = stack.len() - len;
 							for param in ast.params.items.iter() {
-								let len = stack.len();
 								match *param {
-									Ident(ref idast) => subenv.values.insert(idast.value.clone(), Value(stack.remove(len - ast.params.items.len() + count).unwrap())),
+									Ident(ref idast) => {
+										if idast.value.ends_with("...") {
+											debug!("variadic param");
+											let vec = Vec::from_fn(len - count, |_| stack.remove(idx).unwrap());
+											subenv.values.insert(idast.value.slice_to(idast.value.len() - 3).to_owned(),
+											                     Value(Array(box ArrayAst::new(FromVec::from_vec(vec)))));
+										} else {
+											debug!("normal param");
+											subenv.values.insert(idast.value.clone(), Value(match stack.remove(idx).unwrap() {
+												Ident(ast) => match env.find(&ast.value) {
+													Some(val) => match val {
+														&Value(ref val) => val.clone(),
+														&Code(_) => fail!() // XXX: fix
+													},
+													None => fail!() // XXX: fix
+												},
+												other => other
+											}));
+										}
+									}
 									_ => fail!() // XXX: fix
 								};
 								count += 1;
@@ -137,9 +161,12 @@ impl Environment {
 		self.values.insert("print".to_owned(), Code(Environment::print));
 		self.values.insert("define".to_owned(), Code(Environment::define));
 		self.values.insert("fn".to_owned(), Code(Environment::function));
+		self.values.insert("get".to_owned(), Code(Environment::get));
+		self.values.insert("len".to_owned(), Code(Environment::len));
 	}
 
 	fn add(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("add");
 		let mut ops = ops;
 		let mut val = 0f64;
 		let mut decimal = false;
@@ -174,6 +201,7 @@ impl Environment {
 	}
 
 	fn print(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("print");
 		let mut ops = ops;
 		while ops > 0 {
 			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
@@ -228,6 +256,7 @@ impl Environment {
 
 	// should be able to take stuff like (define var value)
 	fn define(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("define");
 		let ops = ops;
 		if ops != 2 {
 			fail!("define can only take two arguments");  // XXX: fix
@@ -237,6 +266,13 @@ impl Environment {
 				Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &Sexpr(ast));
 				Value(unsafe { (*stack).pop() }.unwrap())
 			}
+			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+				Some(val) => match val {
+					&Value(ref val) => Value(val.clone()),
+					&Code(_) => fail!()  // XXX: fix
+				},
+				None => fail!()  // XXX: fix
+			},
 			other => Value(other)
 		};
 		let name = match unsafe { (*stack).pop() }.unwrap() {
@@ -249,6 +285,7 @@ impl Environment {
 	}
 
 	fn function(_: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("function");
 		let mut ops = ops;
 		let mut code = vec!();
 		if ops == 0 {
@@ -264,5 +301,70 @@ impl Environment {
 			ops -= 1;
 		}
 		super::ast::Code(box CodeAst::new(params, FromVec::from_vec(code)))
+	}
+
+	fn get(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("get");
+		if ops != 2 {
+			fail!("get only takes two values (list/array and index)");  // XXX: fix
+		}
+		let arr = match unsafe { (*stack).remove((*stack).len() - 2) }.unwrap() {
+			Array(ast) => *ast,
+			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+				Some(val) => match val {
+					&Value(ref ast) => match ast {
+						&Array(ref ast) => (**ast).clone(),
+						_ => fail!()  // XXX: fix
+					},
+					&Code(_) => fail!()  // XXX: fix
+				},
+				None => fail!()  // XXX: fix
+			},
+			_ => fail!()  // XXX: fix
+		};
+		let idx = match unsafe { (*stack).pop() }.unwrap() {
+			Integer(ast) => ast,
+			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+				Some(val) => match val {
+					&Value(ref val) => match val {
+						&Integer(ref ast) => (*ast).clone(),
+						_ => fail!()  // XXX: fix
+					},
+					&Code(_) => fail!()  // XXX: fix
+				},
+				None => fail!()  // XXX: fix
+			},
+			_ => fail!()  // XXX: fix
+		};
+		let idx =
+			if idx.value < 0 {
+				fail!("cannot have negative index")  // XXX: fix
+			} else {
+				idx.value as uint
+			};
+		// TODO: check bounds
+		arr.items.get(idx).unwrap().clone()
+	}
+
+	fn len(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("len");
+		if ops != 1 {
+			fail!("get only takes one value (list/array)");  // XXX: fix
+		}
+		let arr = match unsafe { (*stack).pop() }.unwrap() {
+			Array(ast) => *ast,
+			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+				Some(val) => match val {
+					&Value(ref ast) => match ast {
+						&Array(ref ast) => (**ast).clone(),
+						_ => fail!()  // XXX: fix
+					},
+					&Code(_) => fail!()  // XXX: fix
+				},
+				None => fail!()  // XXX: fix
+			},
+			_ => fail!()  // XXX: fix
+		};
+		Integer(box IntegerAst::new(arr.items.len() as i64))
 	}
 }

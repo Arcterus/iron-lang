@@ -1,0 +1,11 @@
+(define println (fn [msg] (print msg "\n")))
+(define var [1 2 3 4 5])
+(println (get var 2))
+(println (len var))
+(define each (fn [i values]
+  (println (get values i))
+  (each (+ i 1) values)))
+(define each-variadic (fn [i values...] (each 0 values)))
+(each 0 var)
+(each-variadic 0 1 2 3 4 5)
+(println (get var 1000))
