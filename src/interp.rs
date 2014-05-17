@@ -485,6 +485,6 @@ impl Environment {
 			}
 			ops -= 1;
 		}
-		Boolean(box BooleanAst::new(true))  // TODO: replace with nil
+		Nil(box NilAst::new())
 	}
 }

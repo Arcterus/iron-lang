@@ -16,6 +16,7 @@ pub enum ExprAst {
 	Integer(Box<IntegerAst>),
 	Float(Box<FloatAst>),
 	Boolean(Box<BooleanAst>),
+	Nil(Box<NilAst>),
 	Code(Box<CodeAst>)
 }
 
@@ -83,6 +84,9 @@ pub struct BooleanAst {
 }
 
 #[deriving(Clone, Eq)]
+pub struct NilAst;
+
+#[deriving(Clone, Eq)]
 pub struct CodeAst {
 	pub params: ArrayAst,
 	pub code: ~[ExprAst]
@@ -106,6 +110,7 @@ impl Ast for ExprAst {
 			Integer(ast) => ast.optimize_owned(),
 			Float(ast) => ast.optimize_owned(),
 			Boolean(ast) => ast.optimize_owned(),
+			Nil(ast) => ast.optimize_owned(),
 			Code(ast) => ast.optimize_owned()
 		}
 	}
@@ -122,6 +127,7 @@ impl Ast for ExprAst {
 			Integer(ref ast) => ast.compile(),
 			Float(ref ast) => ast.compile(),
 			Boolean(ref ast) => ast.compile(),
+			Nil(ref ast) => ast.compile(),
 			Code(ref ast) => ast.compile()
 		}
 	}
@@ -138,6 +144,7 @@ impl Ast for ExprAst {
 			Integer(ref ast) => ast.dump_level(level),
 			Float(ref ast) => ast.dump_level(level),
 			Boolean(ref ast) => ast.dump_level(level),
+			Nil(ref ast) => ast.dump_level(level),
 			Code(ref ast) => ast.dump_level(level)
 		}
 	}
@@ -539,6 +546,35 @@ impl Ast for BooleanAst {
 		println!("{}BooleanAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
 		println!("{}{}", spaces, "}");
+	}
+}
+
+impl NilAst {
+	pub fn new() -> NilAst {
+		NilAst
+	}
+}
+
+impl Ast for NilAst {
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
+	}
+
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Nil(self))
+	}
+
+	fn compile(&self) -> ~[u8] {
+		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, level * INDENTATION) {
+			buf.push_char(' ');
+		}
+		println!("{}NilAst", buf.into_owned());
 	}
 }
 
