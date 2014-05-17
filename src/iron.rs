@@ -19,8 +19,8 @@ static NAME: &'static str = "iron";
 static VERSION: &'static str = "0.1";
 
 fn main() {
-	let args = os::args();
-	let program = args.get(0).clone();
+	let args: Vec<StrBuf> = os::args().move_iter().map(|x| x.into_strbuf()).collect();
+	let program = args.get(0).as_slice();
 
 	let opts = [
 		getopts::optflag("d", "debug", "debug mode"),
@@ -52,7 +52,7 @@ fn main() {
 			} else {
 				interp::Release
 			};
-		let code = match io::File::open(&Path::new(matches.free.get(0).clone())) {
+		let code = match io::File::open(&Path::new(matches.free.get(0).as_slice())) {
 			Ok(mut file) => file.read_to_str().unwrap(),
 			Err(f) => {
 				error!("{}", f.to_str());
