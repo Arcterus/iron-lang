@@ -1,3 +1,5 @@
+#![allow(raw_pointer_deriving)]
+
 use std::f64;
 use std::io;
 use std::vec::FromVec;

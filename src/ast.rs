@@ -1,3 +1,5 @@
+#![allow(dead_code)]  // the code it warns about is not actually dead, so...
+
 use std::vec::FromVec;
 
 static INDENTATION: uint = 2;

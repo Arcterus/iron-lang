@@ -25,6 +25,7 @@ fn main() {
 	let opts = [
 		getopts::optflag("d", "debug", "debug mode"),
 		getopts::optflag("", "ast", "print out the AST instead of interpreting the code"),
+		getopts::optflag("", "status", "print out the exit status of the program"),
 		getopts::optflag("V", "version", "print the version number"),
 		getopts::optflag("h", "help", "print this help menu"),
 	];
@@ -69,7 +70,10 @@ fn main() {
 		if matches.opt_present("ast") {
 			interp.dump_ast();
 		} else {
-			println!("exit status: {}", interp.execute());
+			let status = interp.execute();
+			if matches.opt_present("status") {
+				println!("exit status: {}", status);
+			}
 		}
 	}
 }
