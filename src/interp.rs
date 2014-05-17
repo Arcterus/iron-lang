@@ -1,4 +1,5 @@
 use std::f64;
+use std::io;
 use std::vec::FromVec;
 
 use collections;
@@ -22,7 +23,7 @@ enum EnvValue {
 pub struct Interpreter {
 	mode: InterpMode,
 	parser: Parser,
-	env: Environment,
+	pub env: Environment,
 	stack: Vec<ExprAst>
 }
 
@@ -172,6 +173,7 @@ impl Environment {
 		self.values.insert("fn".to_owned(), Code(Environment::function));
 		self.values.insert("get".to_owned(), Code(Environment::get));
 		self.values.insert("len".to_owned(), Code(Environment::len));
+		self.values.insert("import".to_owned(), Code(Environment::importexpr));
 	}
 
 	fn add(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
@@ -215,7 +217,7 @@ impl Environment {
 		while ops > 0 {
 			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 				Integer(ref ast) => print!("{}", ast.value.to_str()),
-				Float(ref ast) => print!("{}", f64::to_str(ast.value)),
+				Float(ref ast) => print!("{}", f64::to_str_digits(ast.value, 15)),
 				Ident(ref ast) => {
 					match unsafe { (*env).find(&ast.value) } {
 						Some(value) => match *value {
@@ -378,17 +380,38 @@ impl Environment {
 		Integer(box IntegerAst::new(arr.items.len() as i64))
 	}
 
-	fn equal(_: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn equal(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("equal");
 		let mut ops = ops;
 		if ops < 2 {
 			fail!("= needs at least two operands"); // XXX: fix
 		}
-		let cmpast = unsafe { (*stack).pop() }.unwrap();
+		let cmpast = match unsafe { (*stack).pop() }.unwrap() {
+			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+				Some(val) => match val {
+					&Value(ref val) => val.clone(),
+					&Code(_) => fail!() // XXX: fix
+				},
+				None => fail!() // XXX: fix
+			},
+			other => other
+		};
 		ops -= 1;
 		while ops > 0 {
-			if unsafe { (*stack).pop() }.unwrap() != cmpast {
-				return Boolean(box BooleanAst::new(false));
+			match unsafe { (*stack).pop() }.unwrap() {
+				Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+					Some(val) => match val {
+						&Value(ref val) => {
+							unsafe { (*stack).push(val.clone()); }
+							ops += 1;
+						}
+						&Code(_) => fail!() // XXX: fix
+					},
+					None => fail!() // XXX: fix
+				},
+				other => if other != cmpast {
+					return Boolean(box BooleanAst::new(false));
+				}
 			}
 			ops -= 1;
 		}
@@ -402,18 +425,64 @@ impl Environment {
 		}
 		let cond = match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 			Boolean(ast) => ast.value,
+			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+				Some(val) => match val {
+					&Value(ref val) => match val {
+						&Boolean(ref ast) => ast.value,
+						_ => fail!() // XXX: fix
+					},
+					&Code(_) => fail!()  // XXX: fix
+				},
+				None => fail!() // XXX: fix
+			},
 			_ => fail!() // XXX: fix
 		};
 		let ontrue = unsafe { (*stack).remove((*stack).len() - ops + 1) }.unwrap();
-		if cond {
-			Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &ontrue);
-		}
 		if ops - 2 > 0 {
 			let onfalse = unsafe { (*stack).pop() }.unwrap();
 			if !cond {
 				Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &onfalse);
 			}
 		}
+		if cond {
+			Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &ontrue);
+		}
 		unsafe { (*stack).pop() }.unwrap()
+	}
+
+	fn importexpr(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		let mut ops = ops;
+		if ops == 0 {
+			fail!("import requires at least one operand"); // XXX: fix
+		}
+		while ops > 0 {
+			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
+				String(ast) => {
+					// TODO: this should be based off of the path of the current file and not require ".irl"
+					// TODO: also, directory that it automatically loads files from, like Ruby, Python, etc.
+					let code = match io::File::open(&Path::new(ast.string)) {
+						Ok(m) => m,
+						Err(_) => fail!() // XXX: fix
+					}.read_to_str().unwrap();
+					let mut interp = Interpreter::new();
+					interp.load_code(code);
+					interp.execute();
+					unsafe { (*env).values.extend(interp.env.values.move_iter()) };
+				}
+				Ident(ast) => match unsafe { (*env).find(&ast.value) } {
+					Some(val) => match val {
+						&Value(ref val) => {
+							unsafe { (*stack).insert((*stack).len() - ops, val.clone()); }
+							ops += 1;
+						}
+						&Code(_) => fail!() // XXX: fix
+					},
+					None => fail!() // XXX: fix
+				},
+				_ => fail!() // XXX: fix
+			}
+			ops -= 1;
+		}
+		Boolean(box BooleanAst::new(true))  // TODO: replace with nil
 	}
 }

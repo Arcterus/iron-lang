@@ -1,1 +1,5 @@
-(define println [msg] (print msg "\n"))
+(import "lib/core.irl")
+
+(define println (fn [msgs...]
+  (foreach msgs (fn [msg] (print msg)))
+  (print "\n")))

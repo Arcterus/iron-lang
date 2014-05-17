@@ -1,0 +1,21 @@
+(define not (fn [val] (if val false true)))
+
+(define do (fn [values...]
+  (define do-two (fn [cb1 cb2]
+    (cb1)
+    (cb2)))
+  (define subfn (fn [values i]
+    (if (not (= (len values) i)
+      (do-two
+        (get values i)
+        (fn [] (subfn values (+ i 1))))))))
+  (subfn values 0)))
+
+(define foreach (fn [values cb]
+  (define trampoline (fn [values cb i]
+    "THIS IS TEMPORARY WHILE MACROS OR SOMETHING ARE ADDED FOR LAZY EVALUATION!!!"
+    (cb (get values i))
+    (subfn values cb (+ i 1))))
+  (define subfn (fn [values cb i]
+    (if (not (= (len values) i)) (trampoline values cb i))))
+  (subfn values cb 0)))

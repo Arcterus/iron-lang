@@ -1,0 +1,3 @@
+(import "lib/std.irl")
+
+(foreach [1 2 3 4 5] (fn [val] (println val)))
