@@ -1,5 +1,7 @@
 #![allow(dead_code)]  // the code it warns about is not actually dead, so...
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::vec::FromVec;
 
 static INDENTATION: uint = 2;
@@ -13,10 +15,12 @@ pub enum ExprAst {
 	Array(Box<ArrayAst>),
 	Pointer(Box<PointerAst>),
 	Ident(Box<IdentAst>),
+	Symbol(Box<SymbolAst>),
 	Integer(Box<IntegerAst>),
 	Float(Box<FloatAst>),
 	Boolean(Box<BooleanAst>),
 	Nil(Box<NilAst>),
+	Comment(Box<CommentAst>),
 	Code(Box<CodeAst>)
 }
 
@@ -69,6 +73,11 @@ pub struct IdentAst {
 }
 
 #[deriving(Clone, Eq)]
+pub struct SymbolAst {
+	pub value: ~str
+}
+
+#[deriving(Clone, Eq)]
 pub struct IntegerAst {
 	pub value: i64
 }
@@ -87,9 +96,15 @@ pub struct BooleanAst {
 pub struct NilAst;
 
 #[deriving(Clone, Eq)]
+pub struct CommentAst {
+	pub value: ~str
+}
+
+#[deriving(Clone, Eq)]
 pub struct CodeAst {
 	pub params: ArrayAst,
-	pub code: ~[ExprAst]
+	pub code: ~[ExprAst],
+	pub env: Rc<RefCell<::interp::Environment>>
 }
 
 impl Ast for ExprAst {
@@ -107,10 +122,12 @@ impl Ast for ExprAst {
 			Array(ast) => ast.optimize_owned(),
 			Pointer(ast) => ast.optimize_owned(),
 			Ident(ast) => ast.optimize_owned(),
+			Symbol(ast) => ast.optimize_owned(),
 			Integer(ast) => ast.optimize_owned(),
 			Float(ast) => ast.optimize_owned(),
 			Boolean(ast) => ast.optimize_owned(),
 			Nil(ast) => ast.optimize_owned(),
+			Comment(ast) => ast.optimize_owned(),
 			Code(ast) => ast.optimize_owned()
 		}
 	}
@@ -124,10 +141,12 @@ impl Ast for ExprAst {
 			Array(ref ast) => ast.compile(),
 			Pointer(ref ast) => ast.compile(),
 			Ident(ref ast) => ast.compile(),
+			Symbol(ref ast) => ast.compile(),
 			Integer(ref ast) => ast.compile(),
 			Float(ref ast) => ast.compile(),
 			Boolean(ref ast) => ast.compile(),
 			Nil(ref ast) => ast.compile(),
+			Comment(ref ast) => ast.compile(),
 			Code(ref ast) => ast.compile()
 		}
 	}
@@ -141,10 +160,12 @@ impl Ast for ExprAst {
 			Array(ref ast) => ast.dump_level(level),
 			Pointer(ref ast) => ast.dump_level(level),
 			Ident(ref ast) => ast.dump_level(level),
+			Symbol(ref ast) => ast.dump_level(level),
 			Integer(ref ast) => ast.dump_level(level),
 			Float(ref ast) => ast.dump_level(level),
 			Boolean(ref ast) => ast.dump_level(level),
 			Nil(ref ast) => ast.dump_level(level),
+			Comment(ref ast) => ast.dump_level(level),
 			Code(ref ast) => ast.dump_level(level)
 		}
 	}
@@ -463,6 +484,49 @@ impl Ast for IdentAst {
 	}
 }
 
+impl SymbolAst {
+	pub fn new(value: ~str) -> SymbolAst {
+		SymbolAst {
+			value: value
+		}
+	}
+}
+
+impl Ast for SymbolAst {
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
+	}
+
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Symbol(self))
+	}
+
+	fn compile(&self) -> ~[u8] {
+		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}SymbolAst {}", spaces, "{");
+		println!("{}{}{}", spaces, indent, self.value);
+		println!("{}{}", spaces, "}");
+	}
+}
+
 impl FloatAst {
 	pub fn new(value: f64) -> FloatAst {
 		FloatAst {
@@ -578,11 +642,55 @@ impl Ast for NilAst {
 	}
 }
 
+impl CommentAst {
+	pub fn new(value: ~str) -> CommentAst {
+		CommentAst {
+			value: value
+		}
+	}
+}
+
+impl Ast for CommentAst {
+	fn optimize(&self) -> Option<ExprAst> {
+		let val = (*self).clone();
+		(box val).optimize_owned()
+	}
+
+	fn optimize_owned(~self) -> Option<ExprAst> {
+		Some(Comment(self))
+	}
+
+	fn compile(&self) -> ~[u8] {
+		~[]
+	}
+
+	fn dump_level(&self, level: uint) {
+		let mut buf = StrBuf::new();
+		for _ in range(0, INDENTATION) {
+			buf.push_char(' ');
+		}
+		let indent = buf.to_owned();
+		let spaces =
+			if level == 0 {
+				"".to_owned()
+			} else {
+				for _ in range(0, (level - 1) * INDENTATION) {
+					buf.push_char(' ');
+				}
+				buf.into_owned()
+			};
+		println!("{}CommentAst {}", spaces, "{");
+		println!("{}{}{}", spaces, indent, self.value);
+		println!("{}{}", spaces, "}");
+	}
+}
+
 impl CodeAst {
-	pub fn new(params: ArrayAst, code: ~[ExprAst]) -> CodeAst {
+	pub fn new(params: ArrayAst, code: ~[ExprAst], env: Rc<RefCell<::interp::Environment>>) -> CodeAst {
 		CodeAst {
 			params: params,
-			code: code
+			code: code,
+			env: env
 		}
 	}
 }

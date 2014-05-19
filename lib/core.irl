@@ -1,5 +1,8 @@
 (define not (fn [val] (if val false true)))
 
+(define push (fn [arr val]
+  (set arr (len arr) val)))
+
 (define do (fn [values...]
   (define do-two (fn [cb1 cb2]
     (cb1)
@@ -14,8 +17,15 @@
 (define foreach (fn [values cb]
   (define trampoline (fn [values cb i]
     "THIS IS TEMPORARY WHILE MACROS OR SOMETHING ARE ADDED FOR LAZY EVALUATION!!!"
-    (cb (get values i))
+    (cb (get values i) i)
     (subfn values cb (+ i 1))))
   (define subfn (fn [values cb i]
     (if (not (= (len values) i)) (trampoline values cb i))))
   (subfn values cb 0)))
+
+(define map (fn [values cb]
+  (define result [])
+  (foreach values (fn [val idx]
+    (print (cb val idx) "\n")
+    (push result (cb val idx))))
+  result))

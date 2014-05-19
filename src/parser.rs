@@ -89,7 +89,7 @@ impl Parser {
 	}
 
 	fn parse_expr(&mut self) -> ParseResult<ExprAst> {
-		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_boolean, parse_nil, parse_ident, parse_string, parse_list, parse_array);
+		let expr = parse_subexprs!(parse_sexpr, parse_float, parse_integer, parse_boolean, parse_nil, parse_ident, parse_string, parse_symbol, parse_list, parse_array, parse_comment);
 		Ok(expr)
 	}
 
@@ -231,7 +231,7 @@ impl Parser {
 			let mut ident = StrBuf::new();
 			loop {
 				let ch = self.code.char_at(self.pos);
-				if ch.is_digit() || ch.is_whitespace() || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '\'' || ch == '"' {
+				if !self.is_ident_char(ch) {
 					break;
 				}
 				ident.push_char(ch);
@@ -314,6 +314,48 @@ impl Parser {
 			} else {
 				Err(self.unexpected_error("\"nil\"", format!("\"{}\"", string)))
 			}
+		}
+	}
+
+	fn parse_symbol(&mut self) -> ParseResult<ExprAst> {
+		self.skip_whitespace();
+		if self.pos + 1 >= self.code.len() {
+			Err(self.eof_error())
+		} else if !self.is_ident_char(self.code.char_at(self.pos + 1)) {
+			self.column += 1;
+			Err(self.unexpected_error("alphabetic character", format!("'{}'", self.code.char_at(self.pos + 1))))
+		} else if self.code.char_at(self.pos) == '\'' {
+			self.inc_pos_col();
+			let ident = try!(self.parse_ident_stack());
+			Ok(Symbol(box SymbolAst::new(ident.value)))
+		} else {
+			Err(self.unexpected_error("\"'\"", format!("'{}'", self.code.char_at(self.pos))))
+		}
+	}
+
+	fn parse_comment(&mut self) -> ParseResult<ExprAst> {
+		self.skip_whitespace();
+		if self.pos == self.code.len() {
+			Err(self.eof_error())
+		} else if self.code.char_at(self.pos) == ';' {
+			self.inc_pos_col();
+			let mut buf = StrBuf::new();
+			while self.pos < self.code.len() && self.code.char_at(self.pos) != '\n' {
+				buf.push_char(self.code.char_at(self.pos));
+				self.inc_pos_col();
+			}
+			Ok(Comment(box CommentAst::new(buf.into_owned())))
+		} else {
+			Err(self.unexpected_error("';'", format!("'{}'", self.code.char_at(self.pos))))
+		}
+	}
+
+	#[inline(always)]
+	fn is_ident_char(&self, ch: char) -> bool {
+		if ch.is_digit() || ch.is_whitespace() || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '\'' || ch == '"' || ch == ';' {
+			false
+		} else {
+			true
 		}
 	}
 

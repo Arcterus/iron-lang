@@ -8,6 +8,7 @@
 #[phase(syntax, link)] extern crate log;
 extern crate collections;
 extern crate getopts;
+extern crate libc;
 
 use std::io;
 use std::os;

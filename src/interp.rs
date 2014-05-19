@@ -1,7 +1,9 @@
 #![allow(raw_pointer_deriving)]
 
+use std::cell::RefCell;
 use std::f64;
 use std::io;
+use std::rc::Rc;
 use std::vec::FromVec;
 
 use collections;
@@ -16,21 +18,34 @@ pub enum InterpMode {
 	Release
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 enum EnvValue {
-	Code(fn(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst),
+	Code(fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst),
 	Value(ExprAst)
+}
+
+impl Eq for fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn eq(&self, other: &fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst) -> bool {
+		let other: *() = unsafe { ::std::mem::transmute(other) };
+		let this: *() = unsafe { ::std::mem::transmute(self) };
+		this == other
+	}
+
+	fn ne(&self, other: &fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst) -> bool {
+		!self.eq(other)
+	}
 }
 
 pub struct Interpreter {
 	mode: InterpMode,
 	parser: Parser,
-	pub env: Environment,
+	pub env: Rc<RefCell<Environment>>,
 	stack: Vec<ExprAst>
 }
 
+#[deriving(Clone, Eq)]
 pub struct Environment {
-	pub parent: Option<*mut Environment>,
+	pub parent: Option<Rc<RefCell<Environment>>>,
 	pub values: collections::HashMap<~str, EnvValue>
 }
 
@@ -41,7 +56,7 @@ impl Interpreter {
 		Interpreter {
 			parser: Parser::new(),
 			mode: Release,
-			env: env,
+			env: Rc::new(RefCell::new(env)),
 			stack: vec!()
 		}
 	}
@@ -61,85 +76,108 @@ impl Interpreter {
 			root = match root.optimize().unwrap() { Root(ast) => ast, _ => unreachable!() };
 		}
 		for ast in root.asts.iter() {
-			Interpreter::execute_node(&mut self.env, &mut self.stack, ast);
+			Interpreter::execute_node(self.env.clone(), &mut self.stack, ast);
 			self.stack.clear();
 		}
 		0 // exit status
 	}
 
-	pub fn execute_node(env: &mut Environment, stack: &mut Vec<ExprAst>, node: &ExprAst) {
+	pub fn execute_node(env: Rc<RefCell<Environment>>, stack: &mut Vec<ExprAst>, node: &ExprAst) {
 		debug!("execute_node");
+		let stacklen = stack.len();
 		match *node {
 			Sexpr(ref sast) => {
 				let val: &str = sast.op.value;
-				if val == "fn" {  // XXX: maybe refactor so this doesn't need to be treated specially?
-					for subast in sast.operands.iter() {
-						stack.push(subast.clone());
+				match val {
+					"fn" => {
+						for subast in sast.operands.iter() {
+							stack.push(subast.clone());
+						}
 					}
-				} else if val == "if" {
-					if sast.operands.len() > 0 {
-						Interpreter::execute_node(env, stack, sast.operands.get(0).unwrap());
+					"if" => {
+						if sast.operands.len() > 0 {
+							Interpreter::execute_node(env.clone(), stack, sast.operands.get(0).unwrap());
+						}
+						for subast in sast.operands.slice_from(1).iter() {
+							stack.push(subast.clone());
+						}
 					}
-					for subast in sast.operands.slice_from(1).iter() {
-						stack.push(subast.clone());
+					"define" | "set" => {
+						if sast.operands.len() > 0 {
+							stack.push(sast.operands.get(0).unwrap().clone());
+							for subast in sast.operands.slice_from(1).iter() {
+								Interpreter::execute_node(env.clone(), stack, subast);
+							}
+						}
 					}
-				} else {
-					for subast in sast.operands.iter() {
-						Interpreter::execute_node(env, stack, subast);
+					_ => {
+						for subast in sast.operands.iter() {
+							Interpreter::execute_node(env.clone(), stack, subast);
+						}
 					}
-				}
-				let thing = match env.find(&sast.op.value) {
-					Some(thing) => (*thing).clone(),
+				};
+				let thing = match env.borrow().find(&sast.op.value) {
+					Some(thing) => thing,
 					None => fail!("Could not find key")  // XXX: also fix
 				};
 				match thing {
 					Code(thunk) => {
 						debug!("executing thunk...");
-						let val = thunk(env as *mut Environment, stack as *mut Vec<ExprAst>, sast.operands.len());
+						let val = thunk(env, stack as *mut Vec<ExprAst>, sast.operands.len());
 						stack.push(val);
 					}
 					Value(ast) => match ast {
 						super::ast::Code(ast) => {
 							debug!("evaluating code...");
 							let mut count = 0;
-							let mut subenv = Environment::new(Some(env as *mut Environment));
-							let len = sast.operands.len();
+							let mut subenv = Environment::new(Some(ast.env.clone()));
+							let mut len = sast.operands.len();
+							if len > ast.params.items.len() {
+								for _ in range(0, len - ast.params.items.len()) {
+									stack.pop();
+								}
+								len = ast.params.items.len();
+							}
 							let idx = stack.len() - len;
+							debug!("begin params");
 							for param in ast.params.items.iter() {
 								match *param {
 									Ident(ref idast) => {
+										debug!("\t{}", idast.value);
 										if idast.value.ends_with("...") {
-											debug!("variadic param");
 											let vec = Vec::from_fn(len - count, |_| stack.remove(idx).unwrap());
 											subenv.values.insert(idast.value.slice_to(idast.value.len() - 3).to_owned(),
 											                     Value(Array(box ArrayAst::new(FromVec::from_vec(vec)))));
 										} else {
-											debug!("normal param");
-											subenv.values.insert(idast.value.clone(), Value(match stack.remove(idx).unwrap() {
-												Ident(ast) => match env.find(&ast.value) {
-													Some(val) => match val {
-														&Value(ref val) => val.clone(),
-														&Code(_) => fail!() // XXX: fix
-													},
-													None => fail!() // XXX: fix
-												},
-												other => other
-											}));
+											subenv.values.insert(idast.value.clone(), Value(stack.remove(idx).unwrap()));
 										}
 									}
 									_ => fail!() // XXX: fix
 								};
 								count += 1;
 							}
+							debug!("end params");
+							let subenv = Rc::new(RefCell::new(subenv));
 							for subast in ast.code.iter() {
-								Interpreter::execute_node(&mut subenv, stack, subast);
+								Interpreter::execute_node(subenv.clone(), stack, subast);
 							}
 						}
 						_ => fail!("Not executable")  // XXX: fix
 					}
 				};
 			}
+			Ident(ref ast) => match env.borrow().find(&ast.value) {
+				Some(val) => match val {
+					Value(ref val) => stack.push(val.clone()),
+					Code(_) => fail!()  // TODO: this should not actually fail
+				},
+				None => fail!("ident {} not declared", ast.value)
+			},
 			ref other => stack.push(other.clone())  // XXX: probably can be fixed
+		}
+		for _ in range(stacklen + 1, stack.len()) {
+			let len = stack.len();
+			stack.remove(len - 1);
 		}
 	}
 
@@ -149,19 +187,31 @@ impl Interpreter {
 }
 
 impl Environment {
-	pub fn new(parent: Option<*mut Environment>) -> Environment {
+	pub fn new(parent: Option<Rc<RefCell<Environment>>>) -> Environment {
 		Environment {
 			parent: parent,
 			values: collections::HashMap::new()
 		}
 	}
 
-	pub fn find<'a>(&'a self, key: &~str) -> Option<&'a EnvValue> {
+	pub fn find(&self, key: &~str) -> Option<EnvValue> {
 		match self.values.find(key) {
-			Some(m) => Some(m),
-			None => match self.parent {
-				Some(env) => unsafe { (*env).find(key) },
+			Some(m) => Some(m.clone()),
+			None => match self.parent.clone() {
+				Some(env) => (*env).clone().unwrap().find(key),
 				None => None
+			}
+		}
+	}
+
+	pub fn replace(&mut self, key: ~str, value: EnvValue) -> bool {
+		if self.values.contains_key(&key) {
+			self.values.insert(key, value);
+			true
+		} else {
+			match self.parent {
+				Some(ref env) => env.borrow_mut().replace(key, value),
+				None => false
 			}
 		}
 	}
@@ -174,11 +224,12 @@ impl Environment {
 		self.values.insert("define".to_owned(), Code(Environment::define));
 		self.values.insert("fn".to_owned(), Code(Environment::function));
 		self.values.insert("get".to_owned(), Code(Environment::get));
+		self.values.insert("set".to_owned(), Code(Environment::set));
 		self.values.insert("len".to_owned(), Code(Environment::len));
 		self.values.insert("import".to_owned(), Code(Environment::importexpr));
 	}
 
-	fn add(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn add(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("add");
 		let mut ops = ops;
 		let mut val = 0f64;
@@ -192,18 +243,6 @@ impl Environment {
 					decimal = true;
 					val += ast.value;
 				}
-				Ident(ref ast) => {
-					match unsafe { (*env).find(&ast.value) } {
-						Some(thing) => match *thing {
-							Value(ref ast) => {
-								unsafe { (*stack).push(ast.clone()); }
-								ops += 1;
-							}
-							_ => fail!("cannot add to a thunk")  // XXX: fix
-						},
-						None => fail!("could not find ident")  // XXX: fix
-					}
-				}
 				_ => {
 					fail!("NYI"); // XXX: implement obviously
 				}
@@ -213,25 +252,13 @@ impl Environment {
 		if decimal { Float(box FloatAst::new(val)) } else { Integer(box IntegerAst::new(val as i64)) }
 	}
 
-	fn print(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn print(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("print");
 		let mut ops = ops;
 		while ops > 0 {
 			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 				Integer(ref ast) => print!("{}", ast.value.to_str()),
 				Float(ref ast) => print!("{}", f64::to_str_digits(ast.value, 15)),
-				Ident(ref ast) => {
-					match unsafe { (*env).find(&ast.value) } {
-						Some(value) => match *value {
-							Value(ref value) => {
-								unsafe { (*stack).insert((*stack).len() + 1 - ops, value.clone()); }
-								ops += 1;
-							}
-							Code(_) => fail!() // XXX: fix
-						},
-						None => fail!() // XXX: fix
-					}
-				}
 				String(ref ast) => {
 					let mut output = StrBuf::new();
 					let mut escape = false;
@@ -269,36 +296,29 @@ impl Environment {
 	}
 
 	// should be able to take stuff like (define var value)
-	fn define(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn define(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("define");
 		let ops = ops;
 		if ops != 2 {
 			fail!("define can only take two arguments");  // XXX: fix
 		}
-		let val = match unsafe { (*stack).pop() }.unwrap() {
+		let valast = match unsafe { (*stack).pop() }.unwrap() {
 			Sexpr(ast) => {
-				Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &Sexpr(ast));
-				Value(unsafe { (*stack).pop() }.unwrap())
+				Interpreter::execute_node(env.clone(), unsafe { ::std::mem::transmute(stack) }, &Sexpr(ast));
+				unsafe { (*stack).pop() }.unwrap()
 			}
-			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-				Some(val) => match val {
-					&Value(ref val) => Value(val.clone()),
-					&Code(_) => fail!()  // XXX: fix
-				},
-				None => fail!()  // XXX: fix
-			},
-			other => Value(other)
+			other => other
 		};
 		let name = match unsafe { (*stack).pop() }.unwrap() {
 			Ident(ref ast) => ast.value.clone(),
 			_ => fail!("define must take ident for first argument")  // XXX: fix
 		};
 		// TODO: add checking in env to see if conflicting names
-		unsafe { (*env).values.insert(name.clone(), val); }
-		Ident(box IdentAst::new(name))
+		env.clone().borrow_mut().values.insert(name.clone(), Value(valast.clone()));
+		valast
 	}
 
-	fn function(_: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn function(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("function");
 		let mut ops = ops;
 		let mut code = vec!();
@@ -314,45 +334,30 @@ impl Environment {
 			unsafe { code.push((*stack).remove((*stack).len() - ops).unwrap()); }
 			ops -= 1;
 		}
-		super::ast::Code(box CodeAst::new(params, FromVec::from_vec(code)))
+		super::ast::Code(box CodeAst::new(params, FromVec::from_vec(code), env.clone()))
 	}
 
-	fn get(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn get(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("get");
 		if ops != 2 {
 			fail!("get only takes two values (list/array and index)");  // XXX: fix
 		}
 		let arr = match unsafe { (*stack).remove((*stack).len() - 2) }.unwrap() {
 			Array(ast) => *ast,
-			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-				Some(val) => match val {
-					&Value(ref ast) => match ast {
-						&Array(ref ast) => (**ast).clone(),
-						_ => fail!()  // XXX: fix
-					},
-					&Code(_) => fail!()  // XXX: fix
-				},
-				None => fail!()  // XXX: fix
-			},
 			_ => fail!()  // XXX: fix
 		};
 		let idx = match unsafe { (*stack).pop() }.unwrap() {
 			Integer(ast) => ast,
-			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-				Some(val) => match val {
-					&Value(ref val) => match val {
-						&Integer(ref ast) => (*ast).clone(),
-						_ => fail!()  // XXX: fix
-					},
-					&Code(_) => fail!()  // XXX: fix
-				},
-				None => fail!()  // XXX: fix
-			},
 			_ => fail!()  // XXX: fix
 		};
 		let idx =
 			if idx.value < 0 {
-				fail!("cannot have negative index")  // XXX: fix
+				let arrlen = arr.items.len();
+				if arrlen < -idx.value as uint {
+					fail!("absolute value of {} is too large for the array/list", idx.value); // XXX: fix
+				} else {
+					arrlen + idx.value as uint
+				}
 			} else {
 				idx.value as uint
 			};
@@ -360,99 +365,101 @@ impl Environment {
 		arr.items.get(idx).unwrap().clone()
 	}
 
-	fn len(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn set(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		debug!("set");
+		if ops != 3 {
+			fail!("set only takes three values (list/array, index, value)");  // XXX: fix
+		}
+		let (idast, mut arrast) = match unsafe { (*stack).remove((*stack).len() - 3) }.unwrap() {
+			Array(_) => return Nil(box NilAst::new()),
+			Ident(ast) => match env.clone().borrow().find(&ast.value) {
+				Some(val) => match val {
+					Value(ref val) => match val {
+						&Array(ref arrast) => (ast, arrast.clone()),
+						_ => fail!() // XXX: fix
+					},
+					Code(_) => fail!() // XXX: fix
+				},
+				None => fail!() // XXX: fix
+			},
+			_ => fail!()  // XXX: fix
+		};
+		let idx = match unsafe { (*stack).remove((*stack).len() - 2) }.unwrap() {
+			Integer(ast) => ast,
+			_ => fail!()  // XXX: fix
+		};
+		let value = unsafe { (*stack).pop() }.unwrap();
+		let idx =
+			if idx.value < 0 {
+				let arrlen = arrast.items.len();
+				if arrlen < -idx.value as uint {
+					fail!("absolute value of {} is too large for the array/list", idx.value); // XXX: fix
+				} else {
+					arrlen + idx.value as uint
+				}
+			} else {
+				idx.value as uint
+			};
+		// TODO: fix this horrifically inefficient mess
+		let mut vec: Vec<ExprAst> = arrast.items.clone().move_iter().collect();
+		vec.grow_set(idx, &Nil(box NilAst::new()), value);
+		arrast.items = FromVec::from_vec(vec);
+		env.clone().borrow_mut().replace(idast.value, Value(Array(arrast)));
+		Nil(box NilAst::new())
+	}
+
+	fn len(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("len");
 		if ops != 1 {
 			fail!("get only takes one value (list/array)");  // XXX: fix
 		}
 		let arr = match unsafe { (*stack).pop() }.unwrap() {
 			Array(ast) => *ast,
-			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-				Some(val) => match val {
-					&Value(ref ast) => match ast {
-						&Array(ref ast) => (**ast).clone(),
-						_ => fail!()  // XXX: fix
-					},
-					&Code(_) => fail!()  // XXX: fix
-				},
-				None => fail!()  // XXX: fix
-			},
 			_ => fail!()  // XXX: fix
 		};
 		Integer(box IntegerAst::new(arr.items.len() as i64))
 	}
 
-	fn equal(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn equal(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("equal");
 		let mut ops = ops;
 		if ops < 2 {
 			fail!("= needs at least two operands"); // XXX: fix
 		}
-		let cmpast = match unsafe { (*stack).pop() }.unwrap() {
-			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-				Some(val) => match val {
-					&Value(ref val) => val.clone(),
-					&Code(_) => fail!() // XXX: fix
-				},
-				None => fail!() // XXX: fix
-			},
-			other => other
-		};
+		let cmpast = unsafe { (*stack).pop() }.unwrap();
 		ops -= 1;
 		while ops > 0 {
-			match unsafe { (*stack).pop() }.unwrap() {
-				Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-					Some(val) => match val {
-						&Value(ref val) => {
-							unsafe { (*stack).push(val.clone()); }
-							ops += 1;
-						}
-						&Code(_) => fail!() // XXX: fix
-					},
-					None => fail!() // XXX: fix
-				},
-				other => if other != cmpast {
-					return Boolean(box BooleanAst::new(false));
-				}
+			if unsafe { (*stack).pop() }.unwrap() != cmpast {
+				return Boolean(box BooleanAst::new(false));
 			}
 			ops -= 1;
 		}
 		Boolean(box BooleanAst::new(true))
 	}
 
-	fn ifexpr(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn ifexpr(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		debug!("if");
 		if ops < 2 || ops > 3 {
 			fail!("if needs >= 2 && <= 4 operands");  // XXX: fix
 		}
 		let cond = match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 			Boolean(ast) => ast.value,
-			Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-				Some(val) => match val {
-					&Value(ref val) => match val {
-						&Boolean(ref ast) => ast.value,
-						_ => fail!() // XXX: fix
-					},
-					&Code(_) => fail!()  // XXX: fix
-				},
-				None => fail!() // XXX: fix
-			},
 			_ => fail!() // XXX: fix
 		};
 		let ontrue = unsafe { (*stack).remove((*stack).len() - ops + 1) }.unwrap();
 		if ops - 2 > 0 {
 			let onfalse = unsafe { (*stack).pop() }.unwrap();
 			if !cond {
-				Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &onfalse);
+				Interpreter::execute_node(env.clone(), unsafe { ::std::mem::transmute(stack) }, &onfalse);
 			}
 		}
 		if cond {
-			Interpreter::execute_node(unsafe { ::std::mem::transmute(env) }, unsafe { ::std::mem::transmute(stack) }, &ontrue);
+			Interpreter::execute_node(env.clone(), unsafe { ::std::mem::transmute(stack) }, &ontrue);
 		}
 		unsafe { (*stack).pop() }.unwrap()
 	}
 
-	fn importexpr(env: *mut Environment, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+	fn importexpr(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 		let mut ops = ops;
 		if ops == 0 {
 			fail!("import requires at least one operand"); // XXX: fix
@@ -469,18 +476,8 @@ impl Environment {
 					let mut interp = Interpreter::new();
 					interp.load_code(code);
 					interp.execute();
-					unsafe { (*env).values.extend(interp.env.values.move_iter()) };
+					env.borrow_mut().values.extend((*interp.env).clone().unwrap().values.move_iter());
 				}
-				Ident(ast) => match unsafe { (*env).find(&ast.value) } {
-					Some(val) => match val {
-						&Value(ref val) => {
-							unsafe { (*stack).insert((*stack).len() - ops, val.clone()); }
-							ops += 1;
-						}
-						&Code(_) => fail!() // XXX: fix
-					},
-					None => fail!() // XXX: fix
-				},
 				_ => fail!() // XXX: fix
 			}
 			ops -= 1;
