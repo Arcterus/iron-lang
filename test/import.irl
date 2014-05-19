@@ -1,4 +1,4 @@
-(import "lib/std.irl")
+(import "../lib/std")
 
 (foreach [1 2 3 4 5] (fn [val] (println val)))
 (foreach (map [1 2 3 4 5] (fn [val] (+ val 5))) (fn [val] (println (val))))

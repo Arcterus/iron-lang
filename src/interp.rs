@@ -65,6 +65,10 @@ impl Interpreter {
 		self.mode = mode;
 	}
 
+	pub fn set_file(&mut self, file: ~str) {
+		self.env.clone().borrow_mut().values.insert("FILE".to_owned(), Value(String(box StringAst::new(file))));
+	}
+
 	pub fn load_code(&mut self, code: ~str) {
 		self.parser.load_code(code);
 	}
@@ -217,6 +221,7 @@ impl Environment {
 	}
 
 	pub fn populate_default(&mut self) {
+		self.values.insert("FILE".to_owned(), Value(String(box StringAst::new("".to_owned()))));
 		self.values.insert("+".to_owned(), Code(Environment::add));
 		self.values.insert("=".to_owned(), Code(Environment::equal));
 		self.values.insert("print".to_owned(), Code(Environment::print));
@@ -469,14 +474,28 @@ impl Environment {
 		while ops > 0 {
 			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 				String(ast) => {
-					// TODO: this should be based off of the path of the current file and not require ".irl"
-					// TODO: also, directory that it automatically loads files from, like Ruby, Python, etc.
-					let code = match io::File::open(&Path::new(ast.string)) {
+					let mut path = if ast.string.starts_with("./") || ast.string.starts_with("../") {
+						Path::new(match env.clone().borrow().find(&"FILE".to_owned()).unwrap() {
+							Value(val) => match val {
+								String(ast) => ast.string,
+								_ => fail!() // XXX: fix
+							},
+							Code(_) => fail!() // XXX: fix
+						}).dir_path()
+					} else {
+						fail!();
+						Path::new("MODULE DIRECTORY GOES HERE") // TODO: ...
+					}.join(Path::new(ast.string.clone()));
+					if !ast.string.ends_with(".irl") {
+						path.set_extension("irl");
+					}
+					let code = match io::File::open(&path) {
 						Ok(m) => m,
 						Err(_) => fail!() // XXX: fix
 					}.read_to_str().unwrap();
 					let mut interp = Interpreter::new();
 					interp.load_code(code);
+					interp.set_file(path.as_str().unwrap().to_owned());
 					interp.execute();
 					env.borrow_mut().values.extend((*interp.env).clone().unwrap().values.move_iter());
 				}
