@@ -1,0 +1,9 @@
+(import "lib/std.irl")
+
+(println (type "hi"))
+(println (type 'hello))
+(println (type 1))
+(println (type 4.2))
+(println (type '()))
+(println (type []))
+(println (type (fn [])))

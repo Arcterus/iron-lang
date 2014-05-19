@@ -26,6 +26,5 @@
 (define map (fn [values cb]
   (define result [])
   (foreach values (fn [val idx]
-    (print (cb val idx) "\n")
     (push result (cb val idx))))
   result))

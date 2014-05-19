@@ -227,6 +227,7 @@ impl Environment {
 		self.values.insert("set".to_owned(), Code(Environment::set));
 		self.values.insert("len".to_owned(), Code(Environment::len));
 		self.values.insert("import".to_owned(), Code(Environment::importexpr));
+		self.values.insert("type".to_owned(), Code(Environment::type_obj));
 	}
 
 	fn add(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
@@ -287,6 +288,7 @@ impl Environment {
 					}
 					print!("{}", output.into_owned());
 				},
+				Symbol(ast) => print!("'{}", ast.value),
 				Boolean(ast) => print!("{}", ast.value),
 				_ => fail!()  // XXX: more of the same
 			}
@@ -483,5 +485,23 @@ impl Environment {
 			ops -= 1;
 		}
 		Nil(box NilAst::new())
+	}
+
+	fn type_obj(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+		if ops != 1 {
+			fail!("type only takes one object"); // XXX: fix
+		}
+		Symbol(box SymbolAst::new(match unsafe { (*stack).pop() }.unwrap() {
+			Integer(_) => "integer",
+			Float(_) => "float",
+			Array(_) => "array",
+			List(_) => "list",
+			String(_) => "string",
+			Symbol(_) => "symbol",
+			super::ast::Code(_) => "code",
+			Boolean(_) => "boolean",
+			Nil(_) => "nil",
+			_ => fail!() // XXX: fix
+		}.to_owned()))
 	}
 }
