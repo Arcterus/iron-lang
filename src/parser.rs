@@ -11,17 +11,40 @@ macro_rules! parse_subexprs (
 		let oldline = self.line;
 		match self.$expfn() {
 			Ok(m) => m,
-			Err(_) => {
-				self.pos = oldpos;
-				self.column = oldcol;
-				self.line = oldline;
-				parse_subexprs!($($others),+)
+			Err(f) => {
+				let mut largeval = self.pos - oldpos;
+				let mut largest = f;
+				parse_subexprs!(S largest, largeval, oldpos, oldcol, oldline, $($others),+)
 			}
 		}
 	});
-	($expfn:ident) => (
-		try!(self.$expfn())
-	)
+	(S $largest:ident, $largeval:ident, $oldpos:ident, $oldcol:ident, $oldline:ident, $expfn:ident, $($others:ident),+) => ({
+		self.pos = $oldpos;
+		self.column = $oldcol;
+		self.line = $oldline;
+		match self.$expfn() {
+			Ok(m) => m,
+			Err(f) => {
+				let ldiff = self.pos - $oldpos;
+				if ldiff > $largeval {
+					$largeval = ldiff;
+					$largest = f;
+				}
+				parse_subexprs!(S $largest, $largeval, $oldpos, $oldcol, $oldline, $($others),+)
+			}
+		}
+	});
+	(S $largest:ident, $largeval:ident, $oldpos:ident, $oldcol:ident, $oldline:ident, $expfn:ident) => ({
+		match self.$expfn() {
+			Ok(m) => m,
+			Err(f) =>
+				return Err(if self.pos - $oldpos > $largeval {
+					f
+				} else {
+					$largest
+				})
+		}
+	})
 )
 
 pub struct Parser {
