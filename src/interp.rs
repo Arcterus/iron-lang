@@ -1,30 +1,27 @@
 #![allow(raw_pointer_deriving)]
 
 use std::cell::RefCell;
+use std::collections;
 use std::f64;
 use std::io;
 use std::rc::Rc;
-use std::vec::FromVec;
 
-use collections;
-use self::parser::Parser;
+use parser::Parser;
 use ast::*;
 
-mod parser;
-
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum InterpMode {
 	Debug,
 	Release
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 enum EnvValue {
 	Code(fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst),
 	Value(ExprAst)
 }
 
-impl Eq for fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
+impl PartialEq for fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
 	fn eq(&self, other: &fn(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst) -> bool {
 		let other: *() = unsafe { ::std::mem::transmute(other) };
 		let this: *() = unsafe { ::std::mem::transmute(self) };
@@ -43,10 +40,10 @@ pub struct Interpreter {
 	stack: Vec<ExprAst>
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct Environment {
 	pub parent: Option<Rc<RefCell<Environment>>>,
-	pub values: collections::HashMap<~str, EnvValue>
+	pub values: collections::HashMap<String, EnvValue>
 }
 
 impl Interpreter {
@@ -65,11 +62,11 @@ impl Interpreter {
 		self.mode = mode;
 	}
 
-	pub fn set_file(&mut self, file: ~str) {
-		self.env.clone().borrow_mut().values.insert("FILE".to_owned(), Value(String(box StringAst::new(file))));
+	pub fn set_file(&mut self, file: String) {
+		self.env.clone().borrow_mut().values.insert("FILE".to_string(), Value(String(box StringAst::new(file))));
 	}
 
-	pub fn load_code(&mut self, code: ~str) {
+	pub fn load_code(&mut self, code: String) {
 		self.parser.load_code(code);
 	}
 
@@ -91,7 +88,7 @@ impl Interpreter {
 		let stacklen = stack.len();
 		match *node {
 			Sexpr(ref sast) => {
-				let val: &str = sast.op.value;
+				let val: &str = sast.op.value.as_slice();
 				match val {
 					"fn" => {
 						for subast in sast.operands.iter() {
@@ -100,7 +97,7 @@ impl Interpreter {
 					}
 					"if" => {
 						if sast.operands.len() > 0 {
-							Interpreter::execute_node(env.clone(), stack, sast.operands.get(0).unwrap());
+							Interpreter::execute_node(env.clone(), stack, sast.operands.get(0));
 						}
 						for subast in sast.operands.slice_from(1).iter() {
 							stack.push(subast.clone());
@@ -108,7 +105,7 @@ impl Interpreter {
 					}
 					"define" | "set" => {
 						if sast.operands.len() > 0 {
-							stack.push(sast.operands.get(0).unwrap().clone());
+							stack.push(sast.operands.get(0).clone());
 							for subast in sast.operands.slice_from(1).iter() {
 								Interpreter::execute_node(env.clone(), stack, subast);
 							}
@@ -148,10 +145,11 @@ impl Interpreter {
 								match *param {
 									Ident(ref idast) => {
 										debug!("\t{}", idast.value);
-										if idast.value.ends_with("...") {
+										let slice = idast.value.as_slice();
+										if slice.ends_with("...") {
 											let vec = Vec::from_fn(len - count, |_| stack.remove(idx).unwrap());
-											subenv.values.insert(idast.value.slice_to(idast.value.len() - 3).to_owned(),
-											                     Value(Array(box ArrayAst::new(FromVec::from_vec(vec)))));
+											subenv.values.insert(slice.slice_to(slice.len() - 3).to_string(),
+											                     Value(Array(box ArrayAst::new(vec))));
 										} else {
 											subenv.values.insert(idast.value.clone(), Value(stack.remove(idx).unwrap()));
 										}
@@ -198,7 +196,7 @@ impl Environment {
 		}
 	}
 
-	pub fn find(&self, key: &~str) -> Option<EnvValue> {
+	pub fn find(&self, key: &String) -> Option<EnvValue> {
 		match self.values.find(key) {
 			Some(m) => Some(m.clone()),
 			None => match self.parent.clone() {
@@ -208,7 +206,7 @@ impl Environment {
 		}
 	}
 
-	pub fn replace(&mut self, key: ~str, value: EnvValue) -> bool {
+	pub fn replace(&mut self, key: String, value: EnvValue) -> bool {
 		if self.values.contains_key(&key) {
 			self.values.insert(key, value);
 			true
@@ -221,18 +219,18 @@ impl Environment {
 	}
 
 	pub fn populate_default(&mut self) {
-		self.values.insert("FILE".to_owned(), Value(String(box StringAst::new("".to_owned()))));
-		self.values.insert("+".to_owned(), Code(Environment::add));
-		self.values.insert("=".to_owned(), Code(Environment::equal));
-		self.values.insert("print".to_owned(), Code(Environment::print));
-		self.values.insert("if".to_owned(), Code(Environment::ifexpr));
-		self.values.insert("define".to_owned(), Code(Environment::define));
-		self.values.insert("fn".to_owned(), Code(Environment::function));
-		self.values.insert("get".to_owned(), Code(Environment::get));
-		self.values.insert("set".to_owned(), Code(Environment::set));
-		self.values.insert("len".to_owned(), Code(Environment::len));
-		self.values.insert("import".to_owned(), Code(Environment::importexpr));
-		self.values.insert("type".to_owned(), Code(Environment::type_obj));
+		self.values.insert("FILE".to_string(), Value(String(box StringAst::new("".to_string()))));
+		self.values.insert("+".to_string(), Code(Environment::add));
+		self.values.insert("=".to_string(), Code(Environment::equal));
+		self.values.insert("print".to_string(), Code(Environment::print));
+		self.values.insert("if".to_string(), Code(Environment::ifexpr));
+		self.values.insert("define".to_string(), Code(Environment::define));
+		self.values.insert("fn".to_string(), Code(Environment::function));
+		self.values.insert("get".to_string(), Code(Environment::get));
+		self.values.insert("set".to_string(), Code(Environment::set));
+		self.values.insert("len".to_string(), Code(Environment::len));
+		self.values.insert("import".to_string(), Code(Environment::importexpr));
+		self.values.insert("type".to_string(), Code(Environment::type_obj));
 	}
 
 	fn add(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
@@ -266,9 +264,9 @@ impl Environment {
 				Integer(ref ast) => print!("{}", ast.value.to_str()),
 				Float(ref ast) => print!("{}", f64::to_str_digits(ast.value, 15)),
 				String(ref ast) => {
-					let mut output = StrBuf::new();
+					let mut output = String::new();
 					let mut escape = false;
-					for ch in ast.string.chars() {
+					for ch in ast.string.as_slice().chars() {
 						if ch == '\\' {
 							if escape {
 								escape = false;
@@ -278,8 +276,8 @@ impl Environment {
 							}
 						} else if escape {
 							match ch {
-								'n' => println!("{}", output.to_owned()),
-								't' => print!("{}\t", output.to_owned()),
+								'n' => println!("{}", output),
+								't' => print!("{}\t", output),
 								other => fail!("\\\\{} not a valid escape sequence", other)  // XXX: fix
 							}
 							escape = false;
@@ -291,7 +289,7 @@ impl Environment {
 					if escape {
 						fail!("unterminated escape sequence");  // XXX: fix
 					}
-					print!("{}", output.into_owned());
+					print!("{}", output);
 				},
 				Symbol(ast) => print!("'{}", ast.value),
 				Boolean(ast) => print!("{}", ast.value),
@@ -341,7 +339,7 @@ impl Environment {
 			unsafe { code.push((*stack).remove((*stack).len() - ops).unwrap()); }
 			ops -= 1;
 		}
-		super::ast::Code(box CodeAst::new(params, FromVec::from_vec(code), env.clone()))
+		super::ast::Code(box CodeAst::new(params, code, env.clone()))
 	}
 
 	fn get(_: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
@@ -369,7 +367,7 @@ impl Environment {
 				idx.value as uint
 			};
 		// TODO: check bounds
-		arr.items.get(idx).unwrap().clone()
+		arr.items.get(idx).clone()
 	}
 
 	fn set(env: Rc<RefCell<Environment>>, stack: *mut Vec<ExprAst>, ops: uint) -> ExprAst {
@@ -410,7 +408,7 @@ impl Environment {
 		// TODO: fix this horrifically inefficient mess
 		let mut vec: Vec<ExprAst> = arrast.items.clone().move_iter().collect();
 		vec.grow_set(idx, &Nil(box NilAst::new()), value);
-		arrast.items = FromVec::from_vec(vec);
+		arrast.items = vec;
 		env.clone().borrow_mut().replace(idast.value, Value(Array(arrast)));
 		Nil(box NilAst::new())
 	}
@@ -474,8 +472,9 @@ impl Environment {
 		while ops > 0 {
 			match unsafe { (*stack).remove((*stack).len() - ops) }.unwrap() {
 				String(ast) => {
-					let mut path = if ast.string.starts_with("./") || ast.string.starts_with("../") {
-						Path::new(match env.clone().borrow().find(&"FILE".to_owned()).unwrap() {
+					let slice = ast.string.as_slice();
+					let mut path = if slice.starts_with("./") || slice.starts_with("../") {
+						Path::new(match env.clone().borrow().find(&"FILE".to_string()).unwrap() {
 							Value(val) => match val {
 								String(ast) => ast.string,
 								_ => fail!() // XXX: fix
@@ -485,8 +484,8 @@ impl Environment {
 					} else {
 						fail!();
 						Path::new("MODULE DIRECTORY GOES HERE") // TODO: ...
-					}.join(Path::new(ast.string.clone()));
-					if !ast.string.ends_with(".irl") {
+					}.join(Path::new(slice));
+					if !slice.ends_with(".irl") {
 						path.set_extension("irl");
 					}
 					let code = match io::File::open(&path) {
@@ -495,7 +494,7 @@ impl Environment {
 					}.read_to_str().unwrap();
 					let mut interp = Interpreter::new();
 					interp.load_code(code);
-					interp.set_file(path.as_str().unwrap().to_owned());
+					interp.set_file(path.as_str().unwrap().to_string());
 					interp.execute();
 					env.borrow_mut().values.extend((*interp.env).clone().unwrap().values.move_iter());
 				}
@@ -521,6 +520,6 @@ impl Environment {
 			Boolean(_) => "boolean",
 			Nil(_) => "nil",
 			_ => fail!() // XXX: fix
-		}.to_owned()))
+		}.to_string()))
 	}
 }

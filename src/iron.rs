@@ -5,7 +5,7 @@
 
 #![feature(macro_rules, globs, phase)]
 
-#[phase(syntax, link)] extern crate log;
+#[phase(plugin, link)] extern crate log;
 extern crate collections;
 extern crate getopts;
 extern crate libc;
@@ -15,12 +15,13 @@ use std::os;
 
 mod interp;
 mod ast;
+mod parser;
 
 static NAME: &'static str = "iron";
 static VERSION: &'static str = "0.1";
 
 fn main() {
-	let args: Vec<StrBuf> = os::args().move_iter().map(|x| x.into_strbuf()).collect();
+	let args = os::args();
 	let program = args.get(0).as_slice();
 
 	let opts = [
@@ -34,7 +35,7 @@ fn main() {
 	let matches = match getopts::getopts(args.tail(), opts) {
 		Ok(m) => m,
 		Err(f) => {
-			error!("{}", f.to_err_msg());
+			error!("{}", f);
 			os::set_exit_status(1);
 			return
 		}
@@ -64,10 +65,10 @@ fn main() {
 		};
 		let mut interp = interp::Interpreter::new();
 		interp.set_mode(mode);
-		interp.set_file(matches.free.get(0).to_owned());
-		//interp.load_code("(fn hi [param] (+ 1 param))".to_owned());
-		//interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4) [hi 2.354 0.1 \"hi\" (hi)])".to_owned());
-		//interp.load_code("(println (add 2 3.4))".to_owned());
+		interp.set_file(matches.free.get(0).to_string());
+		//interp.load_code("(fn hi [param] (+ 1 param))".to_string());
+		//interp.load_code("(fn hi 1 \"hello world\" 1.05 '(1 2 3.0 4 3.4) [hi 2.354 0.1 \"hi\" (hi)])".to_string());
+		//interp.load_code("(println (add 2 3.4))".to_string());
 		interp.load_code(code);
 		if matches.opt_present("ast") {
 			interp.dump_ast();

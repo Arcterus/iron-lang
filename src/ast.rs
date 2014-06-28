@@ -2,11 +2,10 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::vec::FromVec;
 
 static INDENTATION: uint = 2;
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub enum ExprAst {
 	Root(Box<RootAst>),
 	Sexpr(Box<SexprAst>),
@@ -27,8 +26,8 @@ pub enum ExprAst {
 pub trait Ast {
 	fn optimize(&self) -> Option<ExprAst>;
 	fn optimize_owned(~self) -> Option<ExprAst>;
-	//fn eval(&self) -> Option<~Any>;
-	fn compile(&self) -> ~[u8];
+	//fn eval(&self) -> Option<Box<Any>>;
+	fn compile(&self) -> Vec<u8>;
 
 	fn dump(&self) { self.dump_level(0) }
 
@@ -36,74 +35,74 @@ pub trait Ast {
 	fn dump_level(&self, level: uint);
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct RootAst {
 	pub asts: Vec<ExprAst>
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct SexprAst {
 	pub op: IdentAst,
-	pub operands: ~[ExprAst]
+	pub operands: Vec<ExprAst>
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct StringAst {
-	pub string: ~str
+	pub string: String
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct ListAst {
-	pub items: ~[ExprAst]
+	pub items: Vec<ExprAst>
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct ArrayAst {
-	pub items: ~[ExprAst]
+	pub items: Vec<ExprAst>
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct PointerAst {
 	pub pointee: ExprAst
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct IdentAst {
-	pub value: ~str
+	pub value: String
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct SymbolAst {
-	pub value: ~str
+	pub value: String
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct IntegerAst {
 	pub value: i64
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct FloatAst {
 	pub value: f64
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct BooleanAst {
 	pub value: bool
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct NilAst;
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct CommentAst {
-	pub value: ~str
+	pub value: String
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct CodeAst {
 	pub params: ArrayAst,
-	pub code: ~[ExprAst],
+	pub code: Vec<ExprAst>,
 	pub env: Rc<RefCell<::interp::Environment>>
 }
 
@@ -132,7 +131,7 @@ impl Ast for ExprAst {
 		}
 	}
 
-	fn compile(&self) -> ~[u8] {
+	fn compile(&self) -> Vec<u8> {
 		match *self {
 			Root(ref ast) => ast.compile(),
 			Sexpr(ref ast) => ast.compile(),
@@ -194,20 +193,19 @@ impl Ast for RootAst {
 		self.optimize()
 	}
 
-	fn compile(&self) -> ~[u8] {
+	fn compile(&self) -> Vec<u8> {
 		let mut result = vec!();
 		for ast in self.asts.iter() {
-			result.push_all(ast.compile());
+			result.push_all_move(ast.compile());
 		}
-		FromVec::from_vec(result)
+		result
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut spaces = StrBuf::new();
+		let mut spaces = String::new();
 		for _ in range(0, level * INDENTATION) {
 			spaces.push_char(' ');
 		}
-		let spaces = spaces.into_owned();
 		println!("{}RootAst {}", spaces, "{");
 		for ast in self.asts.iter() {
 			ast.dump_level(level + 1);
@@ -217,7 +215,7 @@ impl Ast for RootAst {
 }
 
 impl SexprAst {
-	pub fn new(op: IdentAst, operands: ~[ExprAst]) -> SexprAst {
+	pub fn new(op: IdentAst, operands: Vec<ExprAst>) -> SexprAst {
 		SexprAst {
 			op: op,
 			operands: operands
@@ -225,8 +223,7 @@ impl SexprAst {
 	}
 
 	fn is_math_op(&self) -> bool {
-		let op: &str = self.op.value;
-		match op {
+		match self.op.value.as_slice() {
 			"add" | "sub" | "mul" | "div" => true,
 			_ => false
 		}
@@ -246,16 +243,15 @@ impl Ast for SexprAst {
 		Some(Sexpr(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut spaces = StrBuf::new();
+		let mut spaces = String::new();
 		for _ in range(0, level * INDENTATION) {
 			spaces.push_char(' ');
 		}
-		let spaces = spaces.into_owned();
 		println!("{}SexprAst {}", spaces, "{");
 		self.op.dump_level(level + 1);
 		for ast in self.operands.iter() {
@@ -266,7 +262,7 @@ impl Ast for SexprAst {
 }
 
 impl StringAst {
-	pub fn new(value: ~str) -> StringAst {
+	pub fn new(value: String) -> StringAst {
 		StringAst {
 			string: value
 		}
@@ -284,24 +280,24 @@ impl Ast for StringAst {
 		Some(String(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}StringAst {}", spaces, "{");
 		println!("{}{}\"{}\"", spaces, indent, self.string);
@@ -310,7 +306,7 @@ impl Ast for StringAst {
 }
 
 impl ListAst {
-	pub fn new(items: ~[ExprAst]) -> ListAst {
+	pub fn new(items: Vec<ExprAst>) -> ListAst {
 		ListAst {
 			items: items
 		}
@@ -327,16 +323,15 @@ impl Ast for ListAst {
 		Some(List(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut spaces = StrBuf::new();
+		let mut spaces = String::new();
 		for _ in range(0, level * INDENTATION) {
 			spaces.push_char(' ');
 		}
-		let spaces = spaces.into_owned();
 		println!("{}ListAst {}", spaces, "{");
 		for item in self.items.iter() {
 			item.dump_level(level + 1);
@@ -346,7 +341,7 @@ impl Ast for ListAst {
 }
 
 impl ArrayAst {
-	pub fn new(items: ~[ExprAst]) -> ArrayAst {
+	pub fn new(items: Vec<ExprAst>) -> ArrayAst {
 		ArrayAst {
 			items: items
 		}
@@ -363,16 +358,15 @@ impl Ast for ArrayAst {
 		Some(Array(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut spaces = StrBuf::new();
+		let mut spaces = String::new();
 		for _ in range(0, level * INDENTATION) {
 			spaces.push_char(' ');
 		}
-		let spaces = spaces.into_owned();
 		println!("{}ArrayAst {}", spaces, "{");
 		for item in self.items.iter() {
 			item.dump_level(level + 1);
@@ -391,8 +385,8 @@ impl Ast for PointerAst {
 		Some(Pointer(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, _: uint) { }
@@ -416,24 +410,24 @@ impl Ast for IntegerAst {
 		Some(Integer(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}IntegerAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
@@ -442,7 +436,7 @@ impl Ast for IntegerAst {
 }
 
 impl IdentAst {
-	pub fn new(ident: ~str) -> IdentAst {
+	pub fn new(ident: String) -> IdentAst {
 		IdentAst {
 			value: ident
 		}
@@ -459,24 +453,24 @@ impl Ast for IdentAst {
 		Some(Ident(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}IdentAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
@@ -485,7 +479,7 @@ impl Ast for IdentAst {
 }
 
 impl SymbolAst {
-	pub fn new(value: ~str) -> SymbolAst {
+	pub fn new(value: String) -> SymbolAst {
 		SymbolAst {
 			value: value
 		}
@@ -502,24 +496,24 @@ impl Ast for SymbolAst {
 		Some(Symbol(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}SymbolAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
@@ -545,24 +539,24 @@ impl Ast for FloatAst {
 		Some(Float(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}FloatAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
@@ -588,24 +582,24 @@ impl Ast for BooleanAst {
 		Some(Boolean(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}BooleanAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
@@ -629,21 +623,21 @@ impl Ast for NilAst {
 		Some(Nil(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, level * INDENTATION) {
 			buf.push_char(' ');
 		}
-		println!("{}NilAst", buf.into_owned());
+		println!("{}NilAst", buf);
 	}
 }
 
 impl CommentAst {
-	pub fn new(value: ~str) -> CommentAst {
+	pub fn new(value: String) -> CommentAst {
 		CommentAst {
 			value: value
 		}
@@ -660,24 +654,24 @@ impl Ast for CommentAst {
 		Some(Comment(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, level: uint) {
-		let mut buf = StrBuf::new();
+		let mut buf = String::new();
 		for _ in range(0, INDENTATION) {
 			buf.push_char(' ');
 		}
-		let indent = buf.to_owned();
+		let indent = buf.clone();
 		let spaces =
 			if level == 0 {
-				"".to_owned()
+				"".to_string()
 			} else {
 				for _ in range(0, (level - 1) * INDENTATION) {
 					buf.push_char(' ');
 				}
-				buf.into_owned()
+				buf
 			};
 		println!("{}CommentAst {}", spaces, "{");
 		println!("{}{}{}", spaces, indent, self.value);
@@ -686,7 +680,7 @@ impl Ast for CommentAst {
 }
 
 impl CodeAst {
-	pub fn new(params: ArrayAst, code: ~[ExprAst], env: Rc<RefCell<::interp::Environment>>) -> CodeAst {
+	pub fn new(params: ArrayAst, code: Vec<ExprAst>, env: Rc<RefCell<::interp::Environment>>) -> CodeAst {
 		CodeAst {
 			params: params,
 			code: code,
@@ -705,8 +699,8 @@ impl Ast for CodeAst {
 		Some(Code(self))
 	}
 
-	fn compile(&self) -> ~[u8] {
-		~[]
+	fn compile(&self) -> Vec<u8> {
+		vec!()
 	}
 
 	fn dump_level(&self, _: uint) { }
